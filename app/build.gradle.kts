@@ -1,0 +1,86 @@
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.ksp)
+}
+
+android {
+    namespace = "com.example.aplikasitokosembakoarkhan"
+    compileSdk = 35
+
+    defaultConfig {
+        applicationId = "com.example.aplikasitokosembakoarkhan"
+        minSdk = 26
+        targetSdk = 35
+        versionCode = 1
+        versionName = "1.0"
+
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+    }
+    kotlinOptions {
+        jvmTarget = "11"
+    }
+    buildFeatures {
+        compose = true
+    }
+}
+
+dependencies {
+
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.activity.compose)
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.ui)
+    implementation(libs.androidx.ui.graphics)
+    implementation(libs.androidx.ui.tooling.preview)
+    implementation(libs.androidx.material3)
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.ui.test.junit4)
+    debugImplementation(libs.androidx.ui.tooling)
+    debugImplementation(libs.androidx.ui.test.manifest)
+    // Room Database
+    implementation(libs.androidx.room.runtime)
+    implementation(libs.androidx.room.ktx)
+    ksp(libs.androidx.room.compiler) // Gunakan ksp, bukan kapt
+
+    // Excel Export
+    implementation(libs.apache.poi)
+    implementation(libs.apache.poi.ooxml)
+
+    implementation("androidx.navigation:navigation-compose:2.8.0")
+    implementation("androidx.compose.material:material-icons-extended:1.7.0") // Untuk icon keranjang/kasir
+
+    implementation("io.coil-kt:coil-compose:2.6.0")
+
+    implementation("com.github.DantSu:ESCPOS-ThermalPrinter-Android:3.3.0") // Library Printer
+
+    implementation("org.apache.poi:poi-ooxml:5.2.3")
+
+    val cameraVersion = "1.3.1"
+    implementation("androidx.camera:camera-core:$cameraVersion")
+    implementation("androidx.camera:camera-camera2:$cameraVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraVersion")
+    implementation("androidx.camera:camera-view:$cameraVersion")
+
+    // Google ML Kit untuk Barcode
+    implementation("com.google.mlkit:barcode-scanning:17.2.0")
+}
