@@ -6,7 +6,7 @@ import android.content.SharedPreferences
 class AppPreferences(context: Context) {
     private val prefs: SharedPreferences = context.getSharedPreferences("TokoArkhanPrefs", Context.MODE_PRIVATE)
 
-    // Property Toko (Getter & Setter Otomatis)
+    // Property Toko
     var storeName: String
         get() = prefs.getString("store_name", "Toko Sembako Arkhan") ?: "Toko Sembako Arkhan"
         set(value) = prefs.edit().putString("store_name", value).apply()
@@ -18,6 +18,11 @@ class AppPreferences(context: Context) {
     var storePhone: String
         get() = prefs.getString("store_phone", "08xx-xxxx-xxxx") ?: "08xx-xxxx-xxxx"
         set(value) = prefs.edit().putString("store_phone", value).apply()
+
+    // Property Footer Struk (BARU DITAMBAHKAN)
+    var receiptFooter: String
+        get() = prefs.getString("receipt_footer", "Terima Kasih atas Kunjungan Anda") ?: "Terima Kasih"
+        set(value) = prefs.edit().putString("receipt_footer", value).apply()
 
     // Property Printer
     var printerAddress: String

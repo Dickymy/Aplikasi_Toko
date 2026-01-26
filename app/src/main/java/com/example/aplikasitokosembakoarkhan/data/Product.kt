@@ -8,15 +8,18 @@ data class Product(
     @PrimaryKey(autoGenerate = true)
     val id: Int = 0,
     val name: String,
-    val buyPrice: Double,
-    val sellPrice: Double,
-    val stock: Int,
     val barcode: String,
+    val buyPrice: Double, // Modal
+    val sellPrice: Double, // Jual
+    val stock: Int,
     val unit: String,
-    val imagePath: String? = null,
-    val expireDate: Long = 0,
+    val imagePath: String? = null, // Kembalikan fitur gambar
 
-    // TAMBAHKAN DUA KOLOM INI AGAR ERROR HILANG:
+    // Fitur Grosir & Expired Asli
+    val expireDate: Long = 0,
     val wholesaleQty: Int = 0,
-    val wholesalePrice: Double = 0.0
+    val wholesalePrice: Double = 0.0,
+
+    // --- BARU: KATEGORI ---
+    val category: String = "Umum"
 )

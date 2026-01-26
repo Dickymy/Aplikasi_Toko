@@ -19,10 +19,8 @@ object ExcelHelper {
             context.contentResolver.openInputStream(uri)?.use { inputStream ->
                 val workbook = XSSFWorkbook(inputStream)
                 val sheet = workbook.getSheetAt(0)
-
                 for (row in sheet) {
                     if (row.rowNum == 0) continue
-
                     val name = row.getCell(1)?.stringCellValue ?: ""
                     val buyPrice = row.getCell(2)?.numericCellValue ?: 0.0
                     val sellPrice = row.getCell(3)?.numericCellValue ?: 0.0
@@ -43,53 +41,44 @@ object ExcelHelper {
                                 stock = stock,
                                 unit = unit,
                                 barcode = barcode,
-                                expireDate = 0L
+                                expireDate = 0L,
+                                category = "Umum"
                             )
                         )
                     }
                 }
                 workbook.close()
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        } catch (e: Exception) { e.printStackTrace() }
         return productList
     }
 
+    // UPDATE: Mengembalikan File agar MainActivity tidak error
     fun exportProductsToExcel(context: Context, products: List<Product>): File {
         val workbook = XSSFWorkbook()
         val sheet = workbook.createSheet("Stok Barang")
-
         val headerRow = sheet.createRow(0)
-        val headers = listOf("ID", "Nama Barang", "Harga Beli", "Harga Jual", "Stok", "Satuan", "Barcode")
+        val headers = listOf("ID", "Nama Barang", "Kategori", "Harga Beli", "Harga Jual", "Stok", "Satuan", "Barcode")
 
         headers.forEachIndexed { index, title ->
             val cell = headerRow.createCell(index)
             cell.setCellValue(title)
-            val style = workbook.createCellStyle()
-            val font = workbook.createFont()
-            font.bold = true
-            style.setFont(font)
-            cell.cellStyle = style
         }
 
         products.forEachIndexed { index, product ->
             val row = sheet.createRow(index + 1)
             row.createCell(0).setCellValue(product.id.toDouble())
             row.createCell(1).setCellValue(product.name)
-            row.createCell(2).setCellValue(product.buyPrice)
-            row.createCell(3).setCellValue(product.sellPrice)
-            row.createCell(4).setCellValue(product.stock.toDouble())
-            row.createCell(5).setCellValue(product.unit)
-            row.createCell(6).setCellValue(product.barcode)
-        }
-
-        for (i in headers.indices) {
-            sheet.setColumnWidth(i, 20 * 256)
+            row.createCell(2).setCellValue(product.category)
+            row.createCell(3).setCellValue(product.buyPrice)
+            row.createCell(4).setCellValue(product.sellPrice)
+            row.createCell(5).setCellValue(product.stock.toDouble())
+            row.createCell(6).setCellValue(product.unit)
+            row.createCell(7).setCellValue(product.barcode)
         }
 
         val fileName = "Stok_Barang_${System.currentTimeMillis()}.xlsx"
-        val file = File(context.cacheDir, fileName)
+        val file = File(context.getExternalFilesDir(null), fileName)
         val outputStream = FileOutputStream(file)
         workbook.write(outputStream)
         outputStream.close()
@@ -100,51 +89,31 @@ object ExcelHelper {
     fun exportSalesToExcel(context: Context, salesList: List<Sale>): File {
         val workbook = XSSFWorkbook()
         val sheet = workbook.createSheet("Laporan Penjualan")
-
-        // 1. Header (Disesuaikan dengan data yang ada)
         val headerRow = sheet.createRow(0)
         val headers = listOf("No", "Tanggal", "Jam", "Nama Barang", "Qty", "Total Jual", "Keuntungan")
 
         headers.forEachIndexed { index, title ->
-            val cell = headerRow.createCell(index)
-            cell.setCellValue(title)
-            val style = workbook.createCellStyle()
-            val font = workbook.createFont()
-            font.bold = true
-            style.setFont(font)
-            cell.cellStyle = style
+            headerRow.createCell(index).setCellValue(title)
         }
 
         val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
         val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
-        // 2. Isi Data
         salesList.forEachIndexed { index, sale ->
             val row = sheet.createRow(index + 1)
             val date = Date(sale.date)
-
-            // Hitung Profit Manual
             val profit = sale.totalPrice - sale.capitalPrice
-
             row.createCell(0).setCellValue((index + 1).toDouble())
             row.createCell(1).setCellValue(dateFormat.format(date))
             row.createCell(2).setCellValue(timeFormat.format(date))
-            row.createCell(3).setCellValue(sale.productName) // Gunakan ProductName
+            row.createCell(3).setCellValue(sale.productName)
             row.createCell(4).setCellValue(sale.quantity.toDouble())
             row.createCell(5).setCellValue(sale.totalPrice)
             row.createCell(6).setCellValue(profit)
         }
 
-        sheet.setColumnWidth(0, 5 * 256)
-        sheet.setColumnWidth(1, 15 * 256)
-        sheet.setColumnWidth(2, 10 * 256)
-        sheet.setColumnWidth(3, 40 * 256)
-        sheet.setColumnWidth(4, 10 * 256)
-        sheet.setColumnWidth(5, 15 * 256)
-        sheet.setColumnWidth(6, 15 * 256)
-
         val fileName = "Laporan_Penjualan_${System.currentTimeMillis()}.xlsx"
-        val file = File(context.cacheDir, fileName)
+        val file = File(context.getExternalFilesDir(null), fileName)
         val outputStream = FileOutputStream(file)
         workbook.write(outputStream)
         outputStream.close()
