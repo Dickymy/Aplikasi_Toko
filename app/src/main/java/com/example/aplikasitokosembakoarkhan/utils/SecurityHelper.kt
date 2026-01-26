@@ -3,31 +3,30 @@ package com.example.aplikasitokosembakoarkhan.utils
 import android.content.Context
 
 object SecurityHelper {
-    private const val PREF_NAME = "toko_security_prefs"
-    private const val KEY_PIN = "admin_pin"
+    private const val PREF_NAME = "TokoArkhanSecurity"
+    private const val KEY_PIN = "app_pin"
 
-    // Simpan PIN Baru
-    fun setPin(context: Context, pin: String) {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putString(KEY_PIN, pin).apply()
-    }
+    private fun getPrefs(context: Context) =
+        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
-    // Cek apakah PIN sudah diatur?
+    // Cek apakah PIN sudah diatur (Dipakai di SettingsScreen)
     fun isPinSet(context: Context): Boolean {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        return !prefs.getString(KEY_PIN, null).isNullOrEmpty()
+        return getPrefs(context).contains(KEY_PIN)
     }
 
-    // Verifikasi PIN (Benar/Salah)
+    // Simpan PIN Baru (Dipakai di SettingsScreen)
+    fun setPin(context: Context, pin: String) {
+        getPrefs(context).edit().putString(KEY_PIN, pin).apply()
+    }
+
+    // Cek kecocokan PIN (Dipakai di PinLockScreen)
     fun checkPin(context: Context, inputPin: String): Boolean {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        val storedPin = prefs.getString(KEY_PIN, "")
-        return storedPin == inputPin
+        val savedPin = getPrefs(context).getString(KEY_PIN, "")
+        return savedPin == inputPin
     }
 
-    // Hapus PIN (Matikan Keamanan)
+    // Hapus PIN (Dipakai di SettingsScreen)
     fun removePin(context: Context) {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        prefs.edit().remove(KEY_PIN).apply()
+        getPrefs(context).edit().remove(KEY_PIN).apply()
     }
 }

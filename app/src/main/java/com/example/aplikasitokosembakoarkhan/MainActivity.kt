@@ -19,12 +19,14 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
-import androidx.compose.material.icons.filled.TrendingDown // <--- PASTIKAN INI ADA
+import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -53,6 +55,31 @@ fun MainApp(viewModel: ProductViewModel) {
     var selectedItem by remember { mutableStateOf("Dashboard") }
     var showMenu by remember { mutableStateOf(false) }
 
+    // --- LOGIKA KEAMANAN ADMIN ---
+    // isAdmin: False = Mode Kasir (Terbatas), True = Mode Admin (Bebas)
+    var isAdminUnlocked by remember { mutableStateOf(false) }
+    var showPinDialog by remember { mutableStateOf(false) }
+    var pendingRoute by remember { mutableStateOf("") } // Rute tujuan setelah PIN benar
+    var pendingItemName by remember { mutableStateOf("") } // Nama menu tujuan
+
+    // Fungsi Navigasi Pintar
+    fun navigateTo(route: String, itemName: String, restricted: Boolean) {
+        scope.launch { drawerState.close() }
+
+        if (!restricted || isAdminUnlocked) {
+            // Jika menu bebas ATAU admin sudah login -> Langsung Buka
+            selectedItem = itemName
+            navController.navigate(route) {
+                if (route == "dashboard") popUpTo("dashboard") { inclusive = true }
+            }
+        } else {
+            // Jika menu terbatas & belum admin -> Minta PIN
+            pendingRoute = route
+            pendingItemName = itemName
+            showPinDialog = true
+        }
+    }
+
     val launcherImport = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
         onResult = { uri -> uri?.let { viewModel.importExcel(context, it) { c -> scope.launch { Toast.makeText(context, "Impor $c berhasil!", Toast.LENGTH_SHORT).show() } } } }
@@ -65,83 +92,62 @@ fun MainApp(viewModel: ProductViewModel) {
                 Text("Toko Arkhan", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.titleLarge)
                 HorizontalDivider()
 
+                // MENU 1: DASHBOARD (BEBAS AKSES)
                 NavigationDrawerItem(
                     label = { Text("Beranda / Dashboard") },
                     selected = selectedItem == "Dashboard",
                     icon = { Icon(Icons.Default.Home, null) },
-                    onClick = {
-                        selectedItem = "Dashboard"
-                        scope.launch { drawerState.close() }
-                        navController.navigate("dashboard") { popUpTo("dashboard") { inclusive = true } }
-                    }
+                    onClick = { navigateTo("dashboard", "Dashboard", restricted = false) }
                 )
 
+                // MENU 2: KASIR (BEBAS AKSES - BIAR KARYAWAN BISA JUALAN)
                 NavigationDrawerItem(
                     label = { Text("Penjualan (Kasir)") },
                     selected = selectedItem == "Penjualan",
                     icon = { Icon(Icons.Default.ShoppingCart, null) },
-                    onClick = {
-                        selectedItem = "Penjualan"
-                        scope.launch { drawerState.close() }
-                        navController.navigate("sales")
-                    }
+                    onClick = { navigateTo("sales", "Penjualan", restricted = false) }
                 )
 
+                // MENU 3: KASBON (DIBATASI PIN)
                 NavigationDrawerItem(
                     label = { Text("Buku Kasbon") },
                     selected = selectedItem == "Kasbon",
                     icon = { Icon(Icons.Default.Book, null) },
-                    onClick = {
-                        selectedItem = "Kasbon"
-                        scope.launch { drawerState.close() }
-                        navController.navigate("debt")
-                    }
+                    onClick = { navigateTo("debt", "Kasbon", restricted = true) }
                 )
 
+                // MENU 4: STOK (DIBATASI PIN)
                 NavigationDrawerItem(
                     label = { Text("Stok / Input Barang") },
                     selected = selectedItem == "Stok Barang",
                     icon = { Icon(Icons.Default.Inventory, null) },
-                    onClick = {
-                        selectedItem = "Stok Barang"
-                        scope.launch { drawerState.close() }
-                        navController.navigate("stock")
-                    }
+                    onClick = { navigateTo("stock", "Stok Barang", restricted = true) }
                 )
 
+                // MENU 5: LAPORAN (DIBATASI PIN)
                 NavigationDrawerItem(
-                    label = { Text("Laporan Riwayat") },
+                    label = { Text("Laporan Keuangan") },
                     selected = selectedItem == "Laporan",
                     icon = { Icon(Icons.Default.DateRange, null) },
-                    onClick = {
-                        selectedItem = "Laporan"
-                        scope.launch { drawerState.close() }
-                        navController.navigate("report")
-                    }
+                    onClick = { navigateTo("report", "Laporan", restricted = true) }
                 )
 
+                // MENU 6: BIAYA OPERASIONAL (DIBATASI PIN)
                 NavigationDrawerItem(
                     label = { Text("Biaya Operasional") },
                     selected = selectedItem == "Expenses",
                     icon = { Icon(Icons.Default.TrendingDown, null) },
-                    onClick = {
-                        selectedItem = "Expenses"
-                        scope.launch { drawerState.close() }
-                        navController.navigate("expenses")
-                    }
+                    onClick = { navigateTo("expenses", "Expenses", restricted = true) }
                 )
 
                 HorizontalDivider()
 
+                // MENU 7: PENGATURAN (DIBATASI PIN)
                 NavigationDrawerItem(
                     label = { Text("Pengaturan & Printer") },
                     selected = selectedItem == "Settings",
                     icon = { Icon(Icons.Default.Settings, null) },
-                    onClick = {
-                        selectedItem = "Settings"
-                        scope.launch { drawerState.close() }
-                        navController.navigate("settings")
-                    }
+                    onClick = { navigateTo("settings", "Settings", restricted = true) }
                 )
             }
         }
@@ -181,23 +187,43 @@ fun MainApp(viewModel: ProductViewModel) {
                     composable("dashboard") {
                         DashboardScreen(
                             viewModel = viewModel,
-                            onNavigateToSales = {
-                                selectedItem = "Penjualan"
-                                navController.navigate("sales")
-                            },
-                            onNavigateToStock = {
-                                selectedItem = "Stok Barang"
-                                navController.navigate("stock")
-                            }
+                            onNavigateToSales = { navigateTo("sales", "Penjualan", restricted = false) },
+                            onNavigateToStock = { navigateTo("stock", "Stok Barang", restricted = true) }
                         )
                     }
                     composable("stock") { ProductScreen(viewModel) }
                     composable("sales") { SalesScreen(viewModel) }
                     composable("report") { ReportScreen(viewModel) }
                     composable("debt") { DebtScreen(viewModel) }
-                    composable("expenses") { ExpenseScreen(viewModel) } // TAMBAHKAN RUTE INI JIKA BELUM ADA
+                    composable("expenses") { ExpenseScreen(viewModel) }
                     composable("settings") { SettingsScreen(viewModel = viewModel) }
                 }
+            }
+        }
+
+        // --- POP-UP PIN DIALOG ---
+        if (showPinDialog) {
+            Dialog(
+                onDismissRequest = { showPinDialog = false },
+                properties = DialogProperties(usePlatformDefaultWidth = false) // Full Screen Overlay
+            ) {
+                PinLockScreen(
+                    onUnlock = {
+                        isAdminUnlocked = true // BERHASIL JADI ADMIN
+                        showPinDialog = false
+                        Toast.makeText(context, "Mode Admin Terbuka", Toast.LENGTH_SHORT).show()
+
+                        // Lanjut ke menu yang tadi dipencet
+                        if (pendingRoute.isNotEmpty()) {
+                            selectedItem = pendingItemName
+                            navController.navigate(pendingRoute)
+                        }
+                    },
+                    onCancel = {
+                        showPinDialog = false
+                        pendingRoute = ""
+                    }
+                )
             }
         }
     }

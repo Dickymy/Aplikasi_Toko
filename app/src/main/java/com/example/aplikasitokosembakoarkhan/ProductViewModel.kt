@@ -292,6 +292,16 @@ class ProductViewModel(
             }
         }
     }
+    fun updateProductSimple(product: Product) {
+        viewModelScope.launch {
+            productDao.updateProduct(product)
+        }
+    }
+    fun updateProductStock(product: Product) {
+        viewModelScope.launch {
+            productDao.updateProduct(product)
+        }
+    }
 
     companion object {
         val Factory: ViewModelProvider.Factory = viewModelFactory {
