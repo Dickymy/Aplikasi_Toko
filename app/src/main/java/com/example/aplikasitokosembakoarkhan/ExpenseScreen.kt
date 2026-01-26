@@ -86,7 +86,7 @@ fun ExpenseScreen(viewModel: ProductViewModel) {
 
             LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
                 items(expenseList) { expense ->
-                    // FORMAT WAKTU LENGKAP (Tanggal + Jam:Menit)
+                    // FORMAT WAKTU LENGKAP
                     val dateStr = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale("id")).format(Date(expense.date))
 
                     Card(
@@ -100,8 +100,8 @@ fun ExpenseScreen(viewModel: ProductViewModel) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(expense.name, fontWeight = FontWeight.Bold)
-                                Text(dateStr, fontSize = 12.sp, color = Color.Gray) // Tampilkan Waktu
+                                Text(expense.description, fontWeight = FontWeight.Bold) // PERBAIKAN: use description
+                                Text(dateStr, fontSize = 12.sp, color = Color.Gray)
                                 Text(formatRupiah(expense.amount), color = Color.Red, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
 
@@ -109,7 +109,7 @@ fun ExpenseScreen(viewModel: ProductViewModel) {
                             Row {
                                 IconButton(onClick = {
                                     expenseToEdit = expense
-                                    name = expense.name
+                                    name = expense.description // PERBAIKAN: use description
                                     amount = expense.amount.toString().replace(".0", "")
                                     showDialog = true
                                 }) {
@@ -151,11 +151,11 @@ fun ExpenseScreen(viewModel: ProductViewModel) {
                         val cost = amount.toDoubleOrNull() ?: 0.0
                         if (name.isNotEmpty() && cost > 0) {
                             if (expenseToEdit == null) {
-                                // Mode Tambah
+                                // Mode Tambah - pastikan parameter di ViewModel sesuai
                                 viewModel.addExpense(name, cost)
                             } else {
-                                // Mode Edit (Pertahankan ID dan Tanggal lama, atau update tanggal jika mau)
-                                viewModel.updateExpense(expenseToEdit!!.copy(name = name, amount = cost))
+                                // Mode Edit - update menggunakan description
+                                viewModel.updateExpense(expenseToEdit!!.copy(description = name, amount = cost))
                             }
                             showDialog = false
                         }
@@ -172,7 +172,7 @@ fun ExpenseScreen(viewModel: ProductViewModel) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("Hapus Data?") },
-            text = { Text("Yakin ingin menghapus pengeluaran '${expenseToDelete?.name}' senilai ${expenseToDelete?.amount}?") },
+            text = { Text("Yakin ingin menghapus pengeluaran '${expenseToDelete?.description}' senilai ${expenseToDelete?.amount}?") }, // PERBAIKAN: use description
             confirmButton = {
                 TextButton(
                     onClick = {

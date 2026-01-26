@@ -14,5 +14,9 @@ data class Product(
     val barcode: String,
     val unit: String,
     val imagePath: String? = null,
-    val expireDate: Long = 0 // <--- KOLOM BARU (0 = Tidak ada expired)
+    val expireDate: Long = 0,
+
+    // TAMBAHKAN DUA KOLOM INI AGAR ERROR HILANG:
+    val wholesaleQty: Int = 0,
+    val wholesalePrice: Double = 0.0
 )

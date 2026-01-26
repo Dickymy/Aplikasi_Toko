@@ -73,7 +73,6 @@ dependencies {
 
     implementation("com.github.DantSu:ESCPOS-ThermalPrinter-Android:3.3.0") // Library Printer
 
-    implementation("org.apache.poi:poi-ooxml:5.2.3")
 
     val cameraVersion = "1.3.1"
     implementation("androidx.camera:camera-core:$cameraVersion")

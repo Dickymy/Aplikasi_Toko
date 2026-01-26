@@ -17,8 +17,9 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Inventory
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Settings // <--- Icon Pengaturan
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.TrendingDown // <--- PASTIKAN INI ADA
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -64,7 +65,6 @@ fun MainApp(viewModel: ProductViewModel) {
                 Text("Toko Arkhan", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.titleLarge)
                 HorizontalDivider()
 
-                // MENU 1: DASHBOARD
                 NavigationDrawerItem(
                     label = { Text("Beranda / Dashboard") },
                     selected = selectedItem == "Dashboard",
@@ -76,7 +76,6 @@ fun MainApp(viewModel: ProductViewModel) {
                     }
                 )
 
-                // MENU 2: KASIR
                 NavigationDrawerItem(
                     label = { Text("Penjualan (Kasir)") },
                     selected = selectedItem == "Penjualan",
@@ -88,7 +87,6 @@ fun MainApp(viewModel: ProductViewModel) {
                     }
                 )
 
-                // MENU 3: KASBON
                 NavigationDrawerItem(
                     label = { Text("Buku Kasbon") },
                     selected = selectedItem == "Kasbon",
@@ -100,7 +98,6 @@ fun MainApp(viewModel: ProductViewModel) {
                     }
                 )
 
-                // MENU 4: STOK
                 NavigationDrawerItem(
                     label = { Text("Stok / Input Barang") },
                     selected = selectedItem == "Stok Barang",
@@ -112,7 +109,6 @@ fun MainApp(viewModel: ProductViewModel) {
                     }
                 )
 
-                // MENU 5: LAPORAN
                 NavigationDrawerItem(
                     label = { Text("Laporan Riwayat") },
                     selected = selectedItem == "Laporan",
@@ -127,7 +123,7 @@ fun MainApp(viewModel: ProductViewModel) {
                 NavigationDrawerItem(
                     label = { Text("Biaya Operasional") },
                     selected = selectedItem == "Expenses",
-                    icon = { Icon(Icons.Default.TrendingDown, null) }, // Pastikan import icon TrendingDown
+                    icon = { Icon(Icons.Default.TrendingDown, null) },
                     onClick = {
                         selectedItem = "Expenses"
                         scope.launch { drawerState.close() }
@@ -135,9 +131,8 @@ fun MainApp(viewModel: ProductViewModel) {
                     }
                 )
 
-                HorizontalDivider() // Pemisah untuk Pengaturan
+                HorizontalDivider()
 
-                // MENU 6: PENGATURAN (BARU)
                 NavigationDrawerItem(
                     label = { Text("Pengaturan & Printer") },
                     selected = selectedItem == "Settings",
@@ -200,11 +195,8 @@ fun MainApp(viewModel: ProductViewModel) {
                     composable("sales") { SalesScreen(viewModel) }
                     composable("report") { ReportScreen(viewModel) }
                     composable("debt") { DebtScreen(viewModel) }
-
-                    // Rute Pengaturan (BARU)
-                    composable("settings") {
-                        SettingsScreen(viewModel = viewModel)
-                    }
+                    composable("expenses") { ExpenseScreen(viewModel) } // TAMBAHKAN RUTE INI JIKA BELUM ADA
+                    composable("settings") { SettingsScreen(viewModel = viewModel) }
                 }
             }
         }

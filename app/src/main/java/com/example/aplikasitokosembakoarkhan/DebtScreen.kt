@@ -23,6 +23,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.aplikasitokosembakoarkhan.data.Customer
 import java.text.NumberFormat
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -217,7 +219,7 @@ fun CustomerItem(
     onDelete: (Customer) -> Unit
 ) {
     // Format Waktu Terakhir Update
-    val lastUpdateStr = if (customer.lastUpdated > 0) {
+    val lastUpdateStr = if (customer.lastUpdated > 0L) {
         SimpleDateFormat("dd MMM, HH:mm", Locale("id")).format(Date(customer.lastUpdated))
     } else {
         "-"
@@ -252,9 +254,8 @@ fun CustomerItem(
                         fontWeight = FontWeight.Bold,
                         color = if (customer.totalDebt > 0) Color.Red else Color(0xFF388E3C)
                     )
-                    // TAMPILKAN WAKTU UPDATE DI SINI
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text("Update: $lastUpdateStr", fontSize = 10.sp, color = Color.Gray, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+                    Text("Update: $lastUpdateStr", fontSize = 10.sp, color = Color.Gray)
                 }
 
                 // Tombol Aksi

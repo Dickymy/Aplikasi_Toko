@@ -82,7 +82,8 @@ class ProductViewModel(
     // --- FUNGSI PENGELUARAN (BARU) ---
     fun addExpense(name: String, amount: Double) {
         viewModelScope.launch {
-            expenseDao.insertExpense(Expense(name = name, amount = amount, date = System.currentTimeMillis()))
+            // Ganti 'name =' menjadi 'description ='
+            expenseDao.insertExpense(Expense(description = name, amount = amount, date = System.currentTimeMillis()))
         }
     }
     fun updateExpense(expense: Expense) {
