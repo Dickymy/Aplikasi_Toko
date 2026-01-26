@@ -3,30 +3,38 @@ package com.example.aplikasitokosembakoarkhan.utils
 import android.content.Context
 
 object SecurityHelper {
-    private const val PREF_NAME = "TokoArkhanSecurity"
-    private const val KEY_PIN = "app_pin"
+    private const val PREF_NAME = "toko_security_prefs"
+    private const val KEY_PIN = "admin_pin"
 
-    private fun getPrefs(context: Context) =
-        context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-
-    // Cek apakah PIN sudah diatur (Dipakai di SettingsScreen)
-    fun isPinSet(context: Context): Boolean {
-        return getPrefs(context).contains(KEY_PIN)
-    }
-
-    // Simpan PIN Baru (Dipakai di SettingsScreen)
+    // Simpan PIN Baru
     fun setPin(context: Context, pin: String) {
-        getPrefs(context).edit().putString(KEY_PIN, pin).apply()
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_PIN, pin).apply()
     }
 
-    // Cek kecocokan PIN (Dipakai di PinLockScreen)
+    // Cek apakah PIN sudah diatur?
+    fun isPinSet(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        return !prefs.getString(KEY_PIN, null).isNullOrEmpty()
+    }
+
+    // Verifikasi PIN (Benar/Salah)
     fun checkPin(context: Context, inputPin: String): Boolean {
-        val savedPin = getPrefs(context).getString(KEY_PIN, "")
-        return savedPin == inputPin
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val storedPin = prefs.getString(KEY_PIN, "")
+        return storedPin == inputPin
     }
 
-    // Hapus PIN (Dipakai di SettingsScreen)
+    // [BARU] Ambil Panjang PIN (4, 5, atau 6 digit)
+    fun getPinLength(context: Context): Int {
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        val storedPin = prefs.getString(KEY_PIN, "")
+        return storedPin?.length ?: 4 // Default 4 jika kosong
+    }
+
+    // Hapus PIN (Matikan Keamanan)
     fun removePin(context: Context) {
-        getPrefs(context).edit().remove(KEY_PIN).apply()
+        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        prefs.edit().remove(KEY_PIN).apply()
     }
 }

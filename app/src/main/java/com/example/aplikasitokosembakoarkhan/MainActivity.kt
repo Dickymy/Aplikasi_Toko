@@ -15,14 +15,17 @@ import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Inventory
+import androidx.compose.material.icons.filled.Lock      // Ikon Gembok Tertutup
+import androidx.compose.material.icons.filled.LockOpen  // Ikon Gembok Terbuka
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingCart
-import androidx.compose.material.icons.filled.TrendingDown
+import androidx.compose.material.icons.automirrored.filled.TrendingDown // Update icon
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -32,6 +35,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.aplikasitokosembakoarkhan.utils.ExcelHelper
+import com.example.aplikasitokosembakoarkhan.utils.SecurityHelper // Import Helper
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -55,25 +59,41 @@ fun MainApp(viewModel: ProductViewModel) {
     var selectedItem by remember { mutableStateOf("Dashboard") }
     var showMenu by remember { mutableStateOf(false) }
 
-    // --- LOGIKA KEAMANAN ADMIN ---
-    // isAdmin: False = Mode Kasir (Terbatas), True = Mode Admin (Bebas)
-    var isAdminUnlocked by remember { mutableStateOf(false) }
+    // --- LOGIKA KEAMANAN ---
+    // Cek apakah PIN sudah diatur di Settings
+    // Kita gunakan key state agar UI ter-refresh jika PIN dihapus/dibuat
+    var isPinSet by remember { mutableStateOf(SecurityHelper.isPinSet(context)) }
+
+    // Status Login Admin (Default False jika PIN ada, True jika PIN tidak ada)
+    var isAdminUnlocked by remember { mutableStateOf(!isPinSet) }
+
+    // Dialog PIN
     var showPinDialog by remember { mutableStateOf(false) }
-    var pendingRoute by remember { mutableStateOf("") } // Rute tujuan setelah PIN benar
-    var pendingItemName by remember { mutableStateOf("") } // Nama menu tujuan
+    var pendingRoute by remember { mutableStateOf("") }
+    var pendingItemName by remember { mutableStateOf("") }
+
+    // Fungsi Refresh Status (Dipanggil saat Settings berubah)
+    fun refreshSecurityState() {
+        isPinSet = SecurityHelper.isPinSet(context)
+        if (!isPinSet) isAdminUnlocked = true // Kalau ga ada PIN, otomatis Admin
+    }
 
     // Fungsi Navigasi Pintar
     fun navigateTo(route: String, itemName: String, restricted: Boolean) {
         scope.launch { drawerState.close() }
 
-        if (!restricted || isAdminUnlocked) {
-            // Jika menu bebas ATAU admin sudah login -> Langsung Buka
+        // Refresh status dulu jaga-jaga user baru hapus PIN
+        refreshSecurityState()
+
+        val canAccess = !isPinSet || !restricted || isAdminUnlocked
+
+        if (canAccess) {
             selectedItem = itemName
             navController.navigate(route) {
                 if (route == "dashboard") popUpTo("dashboard") { inclusive = true }
             }
         } else {
-            // Jika menu terbatas & belum admin -> Minta PIN
+            // Butuh PIN
             pendingRoute = route
             pendingItemName = itemName
             showPinDialog = true
@@ -92,7 +112,6 @@ fun MainApp(viewModel: ProductViewModel) {
                 Text("Toko Arkhan", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.titleLarge)
                 HorizontalDivider()
 
-                // MENU 1: DASHBOARD (BEBAS AKSES)
                 NavigationDrawerItem(
                     label = { Text("Beranda / Dashboard") },
                     selected = selectedItem == "Dashboard",
@@ -100,7 +119,6 @@ fun MainApp(viewModel: ProductViewModel) {
                     onClick = { navigateTo("dashboard", "Dashboard", restricted = false) }
                 )
 
-                // MENU 2: KASIR (BEBAS AKSES - BIAR KARYAWAN BISA JUALAN)
                 NavigationDrawerItem(
                     label = { Text("Penjualan (Kasir)") },
                     selected = selectedItem == "Penjualan",
@@ -108,7 +126,6 @@ fun MainApp(viewModel: ProductViewModel) {
                     onClick = { navigateTo("sales", "Penjualan", restricted = false) }
                 )
 
-                // MENU 3: KASBON (DIBATASI PIN)
                 NavigationDrawerItem(
                     label = { Text("Buku Kasbon") },
                     selected = selectedItem == "Kasbon",
@@ -116,7 +133,6 @@ fun MainApp(viewModel: ProductViewModel) {
                     onClick = { navigateTo("debt", "Kasbon", restricted = true) }
                 )
 
-                // MENU 4: STOK (DIBATASI PIN)
                 NavigationDrawerItem(
                     label = { Text("Stok / Input Barang") },
                     selected = selectedItem == "Stok Barang",
@@ -124,7 +140,6 @@ fun MainApp(viewModel: ProductViewModel) {
                     onClick = { navigateTo("stock", "Stok Barang", restricted = true) }
                 )
 
-                // MENU 5: LAPORAN (DIBATASI PIN)
                 NavigationDrawerItem(
                     label = { Text("Laporan Keuangan") },
                     selected = selectedItem == "Laporan",
@@ -132,17 +147,15 @@ fun MainApp(viewModel: ProductViewModel) {
                     onClick = { navigateTo("report", "Laporan", restricted = true) }
                 )
 
-                // MENU 6: BIAYA OPERASIONAL (DIBATASI PIN)
                 NavigationDrawerItem(
                     label = { Text("Biaya Operasional") },
                     selected = selectedItem == "Expenses",
-                    icon = { Icon(Icons.Default.TrendingDown, null) },
+                    icon = { Icon(Icons.AutoMirrored.Filled.TrendingDown, null) },
                     onClick = { navigateTo("expenses", "Expenses", restricted = true) }
                 )
 
                 HorizontalDivider()
 
-                // MENU 7: PENGATURAN (DIBATASI PIN)
                 NavigationDrawerItem(
                     label = { Text("Pengaturan & Printer") },
                     selected = selectedItem == "Settings",
@@ -158,7 +171,35 @@ fun MainApp(viewModel: ProductViewModel) {
                     title = { Text(selectedItem) },
                     navigationIcon = { IconButton(onClick = { scope.launch { drawerState.open() } }) { Icon(Icons.Default.Menu, "Menu") } },
                     actions = {
-                        if (selectedItem == "Stok Barang") {
+                        // --- 1. IKON STATUS ADMIN (GEMBOK) ---
+                        // Hanya muncul jika PIN diaktifkan
+                        refreshSecurityState() // Cek status tiap render
+
+                        if (isPinSet) {
+                            IconButton(onClick = {
+                                if (isAdminUnlocked) {
+                                    // Kalau sedang terbuka -> Kunci Kembali
+                                    isAdminUnlocked = false
+                                    Toast.makeText(context, "Mode Admin Terkunci", Toast.LENGTH_SHORT).show()
+                                    // Lempar ke dashboard jika sedang di halaman terlarang (opsional)
+                                    navController.navigate("dashboard")
+                                    selectedItem = "Dashboard"
+                                } else {
+                                    // Kalau sedang terkunci -> Buka Dialog PIN
+                                    pendingRoute = "" // Tidak navigasi, hanya buka gembok
+                                    showPinDialog = true
+                                }
+                            }) {
+                                Icon(
+                                    imageVector = if (isAdminUnlocked) Icons.Default.LockOpen else Icons.Default.Lock,
+                                    contentDescription = "Status Admin",
+                                    tint = if (isAdminUnlocked) Color(0xFF2E7D32) else Color.Red // Hijau jika Open, Merah jika Locked
+                                )
+                            }
+                        }
+
+                        // --- 2. MENU KHUSUS STOK ---
+                        if (selectedItem == "Stok Barang" && isAdminUnlocked) {
                             IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.MoreVert, "Opsi") }
                             DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
                                 DropdownMenuItem(text = { Text("Export ke Excel") }, onClick = {
@@ -196,24 +237,27 @@ fun MainApp(viewModel: ProductViewModel) {
                     composable("report") { ReportScreen(viewModel) }
                     composable("debt") { DebtScreen(viewModel) }
                     composable("expenses") { ExpenseScreen(viewModel) }
-                    composable("settings") { SettingsScreen(viewModel = viewModel) }
+                    composable("settings") {
+                        // Saat masuk settings, refresh state saat keluar nanti
+                        SettingsScreen(viewModel)
+                    }
                 }
             }
         }
 
-        // --- POP-UP PIN DIALOG ---
+        // --- DIALOG PIN ---
         if (showPinDialog) {
             Dialog(
                 onDismissRequest = { showPinDialog = false },
-                properties = DialogProperties(usePlatformDefaultWidth = false) // Full Screen Overlay
+                properties = DialogProperties(usePlatformDefaultWidth = false)
             ) {
                 PinLockScreen(
                     onUnlock = {
-                        isAdminUnlocked = true // BERHASIL JADI ADMIN
+                        isAdminUnlocked = true
                         showPinDialog = false
                         Toast.makeText(context, "Mode Admin Terbuka", Toast.LENGTH_SHORT).show()
 
-                        // Lanjut ke menu yang tadi dipencet
+                        // Jika tujuannya navigasi, lanjut jalan
                         if (pendingRoute.isNotEmpty()) {
                             selectedItem = pendingItemName
                             navController.navigate(pendingRoute)
@@ -221,7 +265,6 @@ fun MainApp(viewModel: ProductViewModel) {
                     },
                     onCancel = {
                         showPinDialog = false
-                        pendingRoute = ""
                     }
                 )
             }

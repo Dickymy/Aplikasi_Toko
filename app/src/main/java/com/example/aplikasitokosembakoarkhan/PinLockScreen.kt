@@ -7,7 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Backspace // Gunakan AutoMirrored untuk Backspace
+import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
@@ -20,7 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.aplikasitokosembakoarkhan.utils.SecurityHelper // Pastikan import ini ada
+import com.example.aplikasitokosembakoarkhan.utils.SecurityHelper
 
 @Composable
 fun PinLockScreen(
@@ -30,10 +30,12 @@ fun PinLockScreen(
     val context = LocalContext.current
     var inputPin by remember { mutableStateOf("") }
 
-    // Fungsi Cek PIN menggunakan SecurityHelper
+    // Ambil panjang PIN yang benar dari database (4, 5, atau 6)
+    val targetLength = remember { SecurityHelper.getPinLength(context) }
+
+    // Fungsi Cek PIN
     fun checkPin(pin: String) {
-        if (pin.length == 4) {
-            // Cek PIN lewat SecurityHelper, BUKAN AppPreferences
+        if (pin.length == targetLength) {
             if (SecurityHelper.checkPin(context, pin)) {
                 onUnlock()
             } else {
@@ -60,13 +62,13 @@ fun PinLockScreen(
             Icon(Icons.Default.Lock, null, modifier = Modifier.size(60.dp), tint = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.height(16.dp))
             Text("Butuh Akses Admin", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Text("Masukkan PIN untuk mengakses menu ini", fontSize = 12.sp, color = Color.Gray)
+            Text("Masukkan PIN ($targetLength Angka)", fontSize = 12.sp, color = Color.Gray)
 
             Spacer(modifier = Modifier.height(32.dp))
 
-            // Indikator Titik PIN
+            // Indikator Titik PIN (Dinamis sesuai panjang PIN)
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                repeat(4) { index ->
+                repeat(targetLength) { index ->
                     Box(
                         modifier = Modifier
                             .size(20.dp)
@@ -102,7 +104,6 @@ fun PinLockScreen(
                                     .clickable { if (inputPin.isNotEmpty()) inputPin = inputPin.dropLast(1) },
                                 contentAlignment = Alignment.Center
                             ) {
-                                // Menggunakan AutoMirrored Backspace agar tidak warning/error
                                 Icon(Icons.AutoMirrored.Filled.Backspace, null, tint = Color.Gray)
                             }
                         } else {
@@ -114,10 +115,14 @@ fun PinLockScreen(
                                     .background(Color.White)
                                     .border(1.dp, Color.LightGray, CircleShape)
                                     .clickable {
-                                        if (inputPin.length < 4) {
+                                        // Cek apakah belum mencapai batas panjang PIN
+                                        if (inputPin.length < targetLength) {
                                             val newPin = inputPin + num
                                             inputPin = newPin
-                                            checkPin(newPin)
+                                            // Jika panjang sudah pas, langsung cek
+                                            if (newPin.length == targetLength) {
+                                                checkPin(newPin)
+                                            }
                                         }
                                     },
                                 contentAlignment = Alignment.Center
