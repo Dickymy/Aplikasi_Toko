@@ -1,40 +1,33 @@
 package com.example.aplikasitokosembakoarkhan.utils
 
 import android.content.Context
+import android.content.SharedPreferences
 
 object SecurityHelper {
     private const val PREF_NAME = "toko_security_prefs"
-    private const val KEY_PIN = "admin_pin"
+    private const val KEY_PIN = "app_pin"
 
-    // Simpan PIN Baru
-    fun setPin(context: Context, pin: String) {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        prefs.edit().putString(KEY_PIN, pin).apply()
+    private fun getPrefs(context: Context): SharedPreferences {
+        return context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
     }
 
-    // Cek apakah PIN sudah diatur?
     fun isPinSet(context: Context): Boolean {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        return !prefs.getString(KEY_PIN, null).isNullOrEmpty()
+        val pin = getPrefs(context).getString(KEY_PIN, null)
+        return !pin.isNullOrEmpty()
     }
 
-    // Verifikasi PIN (Benar/Salah)
-    fun checkPin(context: Context, inputPin: String): Boolean {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        val storedPin = prefs.getString(KEY_PIN, "")
+    fun setPin(context: Context, pin: String) {
+        // GANTI .apply() JADI .commit() AGAR TERSIMPAN SEBELUM RESTART
+        getPrefs(context).edit().putString(KEY_PIN, pin).commit()
+    }
+
+    fun validatePin(context: Context, inputPin: String): Boolean {
+        val storedPin = getPrefs(context).getString(KEY_PIN, "")
         return storedPin == inputPin
     }
 
-    // [BARU] Ambil Panjang PIN (4, 5, atau 6 digit)
-    fun getPinLength(context: Context): Int {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        val storedPin = prefs.getString(KEY_PIN, "")
-        return storedPin?.length ?: 4 // Default 4 jika kosong
-    }
-
-    // Hapus PIN (Matikan Keamanan)
     fun removePin(context: Context) {
-        val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
-        prefs.edit().remove(KEY_PIN).apply()
+        // GANTI .apply() JADI .commit()
+        getPrefs(context).edit().remove(KEY_PIN).commit()
     }
 }

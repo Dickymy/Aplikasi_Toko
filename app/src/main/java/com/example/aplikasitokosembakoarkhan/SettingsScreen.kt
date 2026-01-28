@@ -1,5 +1,7 @@
 package com.example.aplikasitokosembakoarkhan
 
+import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -9,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -29,6 +32,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlin.system.exitProcess
 
 @Composable
 fun SettingsScreen(
@@ -41,110 +45,271 @@ fun SettingsScreen(
     }
 
     when (currentSection) {
-        "menu" -> SettingsMenu(onNavigate = { section -> currentSection = section })
-        "receipt" -> ReceiptSettings(viewModel) { currentSection = "menu" }
-        "backup" -> BackupSettings(viewModel) { currentSection = "menu" }
-        "security" -> SecuritySettings(viewModel) { currentSection = "menu" }
-        "about" -> AboutSection(onBack = { currentSection = "menu" }) // Section Baru
+        "menu" -> SettingsMenuContent(onNavigate = { section -> currentSection = section })
+        "receipt" -> ReceiptSettingsContent(viewModel) { currentSection = "menu" }
+        "backup" -> BackupSettingsContent(viewModel) { currentSection = "menu" }
+        "security" -> SecuritySettingsContent(viewModel) { currentSection = "menu" }
+        "about" -> AboutSectionContent(onBack = { currentSection = "menu" })
     }
 }
 
+// --- HELPER FUNGSI RESTART APLIKASI ---
+fun restartApp(context: Context) {
+    val packageManager = context.packageManager
+    val intent = packageManager.getLaunchIntentForPackage(context.packageName)
+    val componentName = intent?.component
+    val mainIntent = Intent.makeRestartActivityTask(componentName)
+    context.startActivity(mainIntent)
+    Runtime.getRuntime().exit(0)
+}
+
 @Composable
-fun SettingsMenu(onNavigate: (String) -> Unit) {
+fun SettingsMenuContent(onNavigate: (String) -> Unit) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text("Pengaturan", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(24.dp))
 
-        SettingsItem(
-            title = "Identitas Toko & Struk",
-            subtitle = "Atur nama toko, alamat, dan footer struk",
-            icon = Icons.AutoMirrored.Filled.ReceiptLong,
-            onClick = { onNavigate("receipt") }
-        )
-        SettingsItem(
-            title = "Backup & Restore",
-            subtitle = "Amankan data database & gambar",
-            icon = Icons.Default.Backup,
-            onClick = { onNavigate("backup") }
-        )
-        SettingsItem(
-            title = "Keamanan (PIN)",
-            subtitle = "Atur kunci masuk untuk menu admin",
-            icon = Icons.Default.Lock,
-            onClick = { onNavigate("security") }
-        )
-        SettingsItem(
-            title = "Tentang Aplikasi",
-            subtitle = "Informasi Pengembang",
-            icon = Icons.Default.Info,
-            onClick = { onNavigate("about") }
-        )
+        SettingsItemRow("Identitas Toko & Struk", "Atur nama toko, alamat, dan footer", Icons.AutoMirrored.Filled.ReceiptLong) { onNavigate("receipt") }
+        SettingsItemRow("Backup & Restore", "Amankan data database & gambar", Icons.Default.Backup) { onNavigate("backup") }
+        SettingsItemRow("Keamanan (PIN)", "Atur kunci & menu yang dilindungi", Icons.Default.Lock) { onNavigate("security") }
+        SettingsItemRow("Tentang Aplikasi", "Informasi Pengembang", Icons.Default.Info) { onNavigate("about") }
     }
 }
 
 @Composable
-fun SettingsItem(title: String, subtitle: String, icon: ImageVector, onClick: () -> Unit) {
+fun SettingsItemRow(title: String, subtitle: String, icon: ImageVector, onClick: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).clickable { onClick() },
-        elevation = CardDefaults.cardElevation(2.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
+        elevation = CardDefaults.cardElevation(2.dp), colors = CardDefaults.cardColors(containerColor = Color.White)
     ) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
             Spacer(modifier = Modifier.width(16.dp))
-            Column {
-                Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                Text(subtitle, fontSize = 12.sp, color = Color.Gray)
-            }
+            Column { Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp); Text(subtitle, fontSize = 12.sp, color = Color.Gray) }
         }
     }
 }
 
 @Composable
-fun AboutSection(onBack: () -> Unit) {
-    Scaffold(topBar = { SettingsTopBar("Tentang Aplikasi", onBack) }) { p ->
+fun SecuritySettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    var isPinSet by remember { mutableStateOf(viewModel.isPinSet()) }
+    var pinInput by remember { mutableStateOf("") }
+
+    val originalLockedMenus by viewModel.lockedMenus.collectAsState()
+    val tempLockedMenus = remember { mutableStateListOf<String>() }
+
+    // State Dialog
+    var showRestartDialog by remember { mutableStateOf(false) } // Untuk "Simpan & Terapkan" menu
+    var showPinCreateDialog by remember { mutableStateOf(false) } // Untuk "Buat PIN Baru"
+    var showPinDeleteDialog by remember { mutableStateOf(false) } // Untuk "Hapus PIN"
+
+    val context = LocalContext.current
+
+    // Init data awal
+    LaunchedEffect(originalLockedMenus) {
+        tempLockedMenus.clear()
+        tempLockedMenus.addAll(originalLockedMenus)
+        if (!tempLockedMenus.contains("settings")) {
+            tempLockedMenus.add("settings")
+        }
+    }
+
+    val menuOptions = remember {
+        listOf(
+            "sales" to "Kasir",
+            "restock" to "Restok Barang",
+            "debt" to "Hutang / Kasbon",
+            "expense" to "Pengeluaran",
+            "products" to "Data Barang",
+            "customers" to "Data Pelanggan",
+            "categories" to "Kategori",
+            "units" to "Satuan",
+            "report" to "Laporan Keuangan",
+            "settings" to "Pengaturan"
+        )
+    }
+
+    Scaffold(topBar = { SettingsHeader("Keamanan (PIN)", onBack) }) { p ->
+        LazyColumn(modifier = Modifier.padding(p).padding(16.dp)) {
+            item {
+                if (isPinSet) {
+                    // --- TAMPILAN JIKA PIN SUDAH AKTIF ---
+                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)), modifier = Modifier.fillMaxWidth()) {
+                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2E7D32))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Aplikasi dilindungi PIN", color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = {
+                            showPinDeleteDialog = true // Tampilkan dialog konfirmasi hapus
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red), modifier = Modifier.fillMaxWidth()
+                    ) { Text("Hapus PIN") }
+
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+
+                    Text("Pilih Menu yang Dikunci:", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Centang menu, lalu tekan tombol Simpan di bawah.", fontSize = 12.sp, color = Color.Gray)
+                    Spacer(modifier = Modifier.height(8.dp))
+                } else {
+                    // --- TAMPILAN JIKA BELUM ADA PIN ---
+                    Text("Pasang PIN Baru (6 Digit):")
+                    OutlinedTextField(
+                        value = pinInput, onValueChange = { if (it.length <= 6 && it.all { c -> c.isDigit() }) pinInput = it },
+                        visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = {
+                            if (pinInput.length >= 4) {
+                                showPinCreateDialog = true // Tampilkan alert konfirmasi buat PIN
+                            } else {
+                                Toast.makeText(context, "Minimal 4 digit", Toast.LENGTH_SHORT).show()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(), enabled = pinInput.length >= 4
+                    ) { Text("Simpan PIN") }
+                }
+            }
+
+            // LIST CHECKBOX MENU (Hanya muncul jika PIN aktif)
+            if (isPinSet) {
+                items(menuOptions) { (route, name) ->
+                    val isMandatory = route == "settings"
+                    val isChecked = if (isMandatory) true else tempLockedMenus.contains(route)
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = !isMandatory) {
+                                if (isChecked) tempLockedMenus.remove(route) else tempLockedMenus.add(route)
+                            }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = isChecked,
+                            onCheckedChange = { checked ->
+                                if (!isMandatory) {
+                                    if (checked) tempLockedMenus.add(route) else tempLockedMenus.remove(route)
+                                }
+                            },
+                            enabled = !isMandatory
+                        )
+                        Column {
+                            Text(name, fontWeight = if(isMandatory) FontWeight.Bold else FontWeight.Normal)
+                            if (isMandatory) Text("(Wajib dikunci)", fontSize = 10.sp, color = Color.Gray)
+                        }
+                    }
+                }
+
+                item {
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Button(
+                        onClick = {
+                            val finalSet = tempLockedMenus.toSet() + "settings"
+                            viewModel.updateLockedMenus(finalSet)
+                            showRestartDialog = true // Alert Simpan Menu
+                        },
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.Save, null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("SIMPAN & TERAPKAN", fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(modifier = Modifier.height(32.dp))
+                }
+            }
+        }
+    }
+
+    // --- ALERT 1: Konfirmasi Simpan & Restart (Menu Lock) ---
+    if (showRestartDialog) {
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text("Pengaturan Disimpan") },
+            text = { Text("Aplikasi akan dimuat ulang untuk menerapkan perubahan keamanan.\n\nKlik OK untuk melanjutkan.") },
+            confirmButton = {
+                Button(
+                    onClick = { restartApp(context) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                ) { Text("OK, Restart Sekarang") }
+            },
+            dismissButton = null
+        )
+    }
+
+    // --- ALERT 2: Konfirmasi Buat PIN Baru ---
+    if (showPinCreateDialog) {
+        AlertDialog(
+            onDismissRequest = { showPinCreateDialog = false },
+            title = { Text("Aktifkan Keamanan PIN?") },
+            text = { Text("Setelah PIN aktif, Anda dapat mengunci halaman penting.\n\nAplikasi akan di-restart untuk mengaktifkan sistem keamanan ini.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.setPin(pinInput)
+                        restartApp(context)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                ) { Text("Ya, Simpan & Restart") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPinCreateDialog = false }) { Text("Batal") }
+            }
+        )
+    }
+
+    // --- ALERT 3: Konfirmasi Hapus PIN ---
+    if (showPinDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showPinDeleteDialog = false },
+            title = { Text("Hapus PIN Keamanan?") },
+            text = { Text("PERINGATAN: Menghapus PIN akan membuka semua kunci halaman.\n\nAplikasi akan di-restart setelah PIN dihapus.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.removePin()
+                        restartApp(context)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                ) { Text("Ya, Hapus & Restart") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPinDeleteDialog = false }) { Text("Batal") }
+            }
+        )
+    }
+}
+
+@Composable
+fun AboutSectionContent(onBack: () -> Unit) {
+    Scaffold(topBar = { SettingsHeader("Tentang Aplikasi", onBack) }) { p ->
         Column(
             modifier = Modifier.padding(p).fillMaxSize().padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Icon Logo
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.primaryContainer,
-                modifier = Modifier.size(100.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Default.Store,
-                        contentDescription = null,
-                        modifier = Modifier.size(50.dp),
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(100.dp)) {
+                Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Store, null, modifier = Modifier.size(50.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer) }
             }
-
             Spacer(modifier = Modifier.height(24.dp))
-
             Text("Aplikasi Toko Sembako Arkhan", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             Text("Versi 1.0", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-
             Spacer(modifier = Modifier.height(32.dp))
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD))
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp).fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD))) {
+                Column(modifier = Modifier.padding(24.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Dikembangkan oleh:", fontSize = 12.sp, color = Color.Gray)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text("Dicky Muhammad Yahya", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1565C0))
                 }
             }
-
             Spacer(modifier = Modifier.height(16.dp))
             Text("© 2024 Hak Cipta Dilindungi", fontSize = 10.sp, color = Color.LightGray)
         }
@@ -152,132 +317,38 @@ fun AboutSection(onBack: () -> Unit) {
 }
 
 @Composable
-fun ReceiptSettings(viewModel: SettingsViewModel, onBack: () -> Unit) {
+fun ReceiptSettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val profile by viewModel.storeProfile.collectAsState()
     val context = LocalContext.current
-
     var name by remember { mutableStateOf(profile.name) }
     var address by remember { mutableStateOf(profile.address) }
     var phone by remember { mutableStateOf(profile.phone) }
     var footer by remember { mutableStateOf(profile.footer) }
 
-    Scaffold(
-        topBar = { SettingsTopBar("Pengaturan Struk", onBack) }
-    ) { p ->
+    Scaffold(topBar = { SettingsHeader("Pengaturan Struk", onBack) }) { p ->
         Column(modifier = Modifier.padding(p).padding(16.dp)) {
-            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nama Toko") }, modifier = Modifier.fillMaxWidth())
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text("Alamat Toko") }, modifier = Modifier.fillMaxWidth())
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("No. HP / Telp") }, modifier = Modifier.fillMaxWidth())
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(value = footer, onValueChange = { footer = it }, label = { Text("Footer Struk (Pesan Bawah)") }, modifier = Modifier.fillMaxWidth())
-
-            Spacer(modifier = Modifier.height(24.dp))
-            Button(
-                onClick = {
-                    viewModel.saveStoreProfile(name, address, phone, footer)
-                    Toast.makeText(context, "Disimpan!", Toast.LENGTH_SHORT).show()
-                    onBack()
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("SIMPAN PERUBAHAN") }
+            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nama Toko") }, modifier = Modifier.fillMaxWidth()); Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text("Alamat Toko") }, modifier = Modifier.fillMaxWidth()); Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("No. HP") }, modifier = Modifier.fillMaxWidth()); Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(value = footer, onValueChange = { footer = it }, label = { Text("Footer Struk") }, modifier = Modifier.fillMaxWidth()); Spacer(modifier = Modifier.height(24.dp))
+            Button(onClick = { viewModel.saveStoreProfile(name, address, phone, footer); Toast.makeText(context, "Disimpan!", Toast.LENGTH_SHORT).show(); onBack() }, modifier = Modifier.fillMaxWidth()) { Text("SIMPAN") }
         }
     }
 }
 
 @Composable
-fun BackupSettings(viewModel: SettingsViewModel, onBack: () -> Unit) {
+fun BackupSettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
     var isLoading by remember { mutableStateOf(false) }
+    val backupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri -> if (uri != null) { isLoading = true; viewModel.backupData(uri, { isLoading = false; Toast.makeText(context, "Sukses!", Toast.LENGTH_SHORT).show() }, { isLoading = false; Toast.makeText(context, "Gagal: $it", Toast.LENGTH_LONG).show() }) } }
+    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) { isLoading = true; viewModel.restoreData(uri, { isLoading = false; Toast.makeText(context, "Sukses! Restart App.", Toast.LENGTH_LONG).show() }, { isLoading = false; Toast.makeText(context, "Gagal: $it", Toast.LENGTH_LONG).show() }) } }
 
-    val backupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri? ->
-        if (uri != null) {
-            isLoading = true
-            viewModel.backupData(uri,
-                onSuccess = { isLoading = false; Toast.makeText(context, "Backup Berhasil!", Toast.LENGTH_SHORT).show() },
-                onError = { isLoading = false; Toast.makeText(context, "Gagal: $it", Toast.LENGTH_LONG).show() }
-            )
-        }
-    }
-
-    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        if (uri != null) {
-            isLoading = true
-            viewModel.restoreData(uri,
-                onSuccess = { isLoading = false; Toast.makeText(context, "Restore Berhasil! Restart Aplikasi.", Toast.LENGTH_LONG).show() },
-                onError = { isLoading = false; Toast.makeText(context, "Gagal: $it", Toast.LENGTH_LONG).show() }
-            )
-        }
-    }
-
-    Scaffold(topBar = { SettingsTopBar("Backup & Restore", onBack) }) { p ->
+    Scaffold(topBar = { SettingsHeader("Backup & Restore", onBack) }) { p ->
         Column(modifier = Modifier.padding(p).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             if (isLoading) CircularProgressIndicator() else {
-                Button(onClick = { backupLauncher.launch("Backup_Toko_${System.currentTimeMillis()}.zip") }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.Upload, null); Spacer(modifier = Modifier.width(8.dp)); Text("Backup Data")
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-                OutlinedButton(onClick = { restoreLauncher.launch(arrayOf("application/zip")) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red)) {
-                    Icon(Icons.Default.Download, null); Spacer(modifier = Modifier.width(8.dp)); Text("Restore Data")
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("Restore akan menimpa data lama!", color = Color.Gray, fontSize = 12.sp)
-            }
-        }
-    }
-}
-
-@Composable
-fun SecuritySettings(viewModel: SettingsViewModel, onBack: () -> Unit) {
-    var isPinSet by remember { mutableStateOf(viewModel.isPinSet()) }
-    var pinInput by remember { mutableStateOf("") }
-    val context = LocalContext.current
-
-    Scaffold(topBar = { SettingsTopBar("Keamanan (PIN)", onBack) }) { p ->
-        Column(modifier = Modifier.padding(p).padding(16.dp)) {
-            if (isPinSet) {
-                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)), modifier = Modifier.fillMaxWidth()) {
-                    Row(modifier = Modifier.padding(16.dp)) {
-                        Icon(Icons.Default.Lock, null, tint = Color(0xFF2E7D32))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Aplikasi dilindungi PIN", color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
-                    }
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        viewModel.removePin()
-                        isPinSet = false
-                        Toast.makeText(context, "PIN Dihapus", Toast.LENGTH_SHORT).show()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
-                    modifier = Modifier.fillMaxWidth()
-                ) { Text("Hapus PIN") }
-            } else {
-                Text("Pasang PIN Baru (6 Digit):")
-                OutlinedTextField(
-                    value = pinInput,
-                    onValueChange = { if (it.length <= 6 && it.all { c -> c.isDigit() }) pinInput = it },
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        if (pinInput.length >= 4) {
-                            viewModel.setPin(pinInput)
-                            isPinSet = true
-                            pinInput = ""
-                            Toast.makeText(context, "PIN Disimpan", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(context, "Minimal 4 digit", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = pinInput.length >= 4
-                ) { Text("Simpan PIN") }
+                Button(onClick = { backupLauncher.launch("Backup_${System.currentTimeMillis()}.zip") }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Upload, null); Spacer(Modifier.width(8.dp)); Text("Backup Data") }
+                Spacer(Modifier.height(16.dp))
+                OutlinedButton(onClick = { restoreLauncher.launch(arrayOf("application/zip")) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red)) { Icon(Icons.Default.Download, null); Spacer(Modifier.width(8.dp)); Text("Restore Data") }
             }
         }
     }
@@ -285,11 +356,6 @@ fun SecuritySettings(viewModel: SettingsViewModel, onBack: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsTopBar(title: String, onBack: () -> Unit) {
-    TopAppBar(
-        title = { Text(title) },
-        navigationIcon = {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Kembali") }
-        }
-    )
+fun SettingsHeader(title: String, onBack: () -> Unit) {
+    TopAppBar(title = { Text(title) }, navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Kembali") } })
 }

@@ -10,12 +10,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-// Model Data Sederhana untuk Info Toko
 data class StoreProfile(
-    val name: String,
-    val address: String,
-    val phone: String,
-    val footer: String
+    val name: String, val address: String, val phone: String, val footer: String
 )
 
 class SettingsViewModel(
@@ -25,49 +21,49 @@ class SettingsViewModel(
 
     private val prefs = AppPreferences(app)
 
-    // --- STATE INFO TOKO ---
-    private val _storeProfile = MutableStateFlow(
-        StoreProfile(prefs.storeName, prefs.storeAddress, prefs.storePhone, prefs.receiptFooter)
-    )
+    private val _storeProfile = MutableStateFlow(StoreProfile(prefs.storeName, prefs.storeAddress, prefs.storePhone, prefs.receiptFooter))
     val storeProfile = _storeProfile.asStateFlow()
 
-    fun saveStoreProfile(name: String, address: String, phone: String, footer: String) {
-        prefs.storeName = name
-        prefs.storeAddress = address
-        prefs.storePhone = phone
-        prefs.receiptFooter = footer
+    private val _lockedMenus = MutableStateFlow(prefs.lockedMenus)
+    val lockedMenus = _lockedMenus.asStateFlow()
 
-        // Update State
+    fun saveStoreProfile(name: String, address: String, phone: String, footer: String) {
+        prefs.storeName = name; prefs.storeAddress = address; prefs.storePhone = phone; prefs.receiptFooter = footer
         _storeProfile.value = StoreProfile(name, address, phone, footer)
     }
 
-    // --- KEAMANAN (PIN) ---
     fun isPinSet(): Boolean = SecurityHelper.isPinSet(app)
+    fun setPin(newPin: String) = SecurityHelper.setPin(app, newPin)
+    fun removePin() = SecurityHelper.removePin(app)
 
-    fun setPin(newPin: String) {
-        SecurityHelper.setPin(app, newPin)
-    }
+    // --- PERBAIKAN: TOGGLE MENU LOCK ---
+    fun toggleMenuLock(route: String, isLocked: Boolean) {
+        // Buat Set BARU (Penting agar StateFlow mendeteksi perubahan)
+        val currentSet = _lockedMenus.value.toMutableSet()
 
-    fun removePin() {
-        SecurityHelper.removePin(app)
-    }
-
-    fun checkPin(input: String): Boolean {
-        return SecurityHelper.checkPin(app, input)
-    }
-
-    // --- BACKUP & RESTORE (Logika Lama) ---
-    fun backupData(destUri: Uri, onSuccess: () -> Unit, onError: (String) -> Unit) {
-        viewModelScope.launch {
-            val result = backupRepository.backupData(destUri)
-            if (result.isSuccess) onSuccess() else onError(result.exceptionOrNull()?.message ?: "Gagal Backup")
+        if (isLocked) {
+            currentSet.add(route)
+        } else {
+            currentSet.remove(route)
         }
+
+        // Simpan ke Preferences & Update State
+        prefs.lockedMenus = currentSet.toSet()
+        _lockedMenus.value = currentSet.toSet()
     }
 
-    fun restoreData(sourceUri: Uri, onSuccess: () -> Unit, onError: (String) -> Unit) {
-        viewModelScope.launch {
-            val result = backupRepository.restoreData(sourceUri)
-            if (result.isSuccess) onSuccess() else onError(result.exceptionOrNull()?.message ?: "Gagal Restore")
-        }
+    fun backupData(uri: Uri, onSuccess: ()->Unit, onError: (String)->Unit) = viewModelScope.launch {
+        val res = backupRepository.backupData(uri)
+        if(res.isSuccess) onSuccess() else onError(res.exceptionOrNull()?.message ?: "Error")
+    }
+    fun restoreData(uri: Uri, onSuccess: ()->Unit, onError: (String)->Unit) = viewModelScope.launch {
+        val res = backupRepository.restoreData(uri)
+        if(res.isSuccess) onSuccess() else onError(res.exceptionOrNull()?.message ?: "Error")
+    }
+    fun updateLockedMenus(newSet: Set<String>) {
+        // Simpan ke SharedPreferences
+        prefs.lockedMenus = newSet
+        // Update StateFlow agar MainActivity langsung mendeteksi perubahan
+        _lockedMenus.value = newSet
     }
 }

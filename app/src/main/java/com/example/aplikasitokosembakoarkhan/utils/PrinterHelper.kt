@@ -29,12 +29,11 @@ object PrinterHelper {
         totalPrice: Double,
         payAmount: Double,
         change: Double,
-        paymentMethod: String // <--- PARAMETER BARU
+        paymentMethod: String
     ) {
         val prefs = AppPreferences(context)
         val printerAddress = prefs.printerAddress
 
-        // 1. Cek Validasi Dasar
         if (printerAddress.isEmpty()) {
             Toast.makeText(context, "Printer belum diatur di Pengaturan!", Toast.LENGTH_LONG).show()
             return
@@ -58,40 +57,30 @@ object PrinterHelper {
             return
         }
 
-        // 2. JALANKAN PROSES DI BACKGROUND (Agar tidak Crash/Hang)
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                // Mencari Device
                 val device = adapter.getRemoteDevice(printerAddress)
 
                 if (device == null) {
-                    throw Exception("Printer tidak ditemukan di daftar paired device")
+                    throw Exception("Printer tidak ditemukan")
                 }
 
-                // Mencoba Koneksi
                 val connection = BluetoothConnection(device)
-
-                // Inisialisasi Printer
                 val printer = EscPosPrinter(connection, 203, 48f, 32)
 
-                // --- SIAPKAN TEXT ---
                 fun formatRupiah(amount: Double) = NumberFormat.getCurrencyInstance(Locale("id", "ID")).format(amount).replace("Rp", "Rp ").replace(",00", "")
                 val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("id", "ID"))
                 val dateNow = dateFormat.format(Date())
 
                 var text = ""
-                // Header
                 text += "[C]<b>${prefs.storeName}</b>\n"
                 text += "[C]${prefs.storeAddress}\n"
                 text += "[C]${prefs.storePhone}\n"
                 text += "[C]--------------------------------\n"
-
-                // Info Transaksi
                 text += "[L]$dateNow\n"
-                text += "[L]Metode: <b>$paymentMethod</b>\n" // <--- TAMPILKAN METODE BAYAR
+                text += "[L]Metode: <b>$paymentMethod</b>\n"
                 text += "[C]--------------------------------\n"
 
-                // Daftar Barang
                 cart.forEach { (product, qty) ->
                     val totalItemPrice = product.sellPrice * qty
                     text += "[L]<b>${product.name}</b>\n"
@@ -99,28 +88,20 @@ object PrinterHelper {
                 }
 
                 text += "[C]--------------------------------\n"
-
-                // Total
                 text += "[L]TOTAL :[R]<b>${formatRupiah(totalPrice)}</b>\n"
 
-                // Logika Tampilan Pembayaran
                 if (paymentMethod == "Tunai") {
                     text += "[L]TUNAI :[R]${formatRupiah(payAmount)}\n"
                     text += "[L]KEMBALI :[R]${formatRupiah(change)}\n"
                 } else {
-                    text += "[L]STATUS :[R]LUNAS ($paymentMethod)\n"
+                    text += "[L]STATUS :[R]LUNAS\n"
                 }
 
-                // Footer
                 text += "[C]--------------------------------\n"
-                text += "[C]Terima Kasih\n"
-                text += "[C]Barang yang dibeli tidak dapat\n"
-                text += "[C]dikembalikan\n"
+                text += "[C]${prefs.receiptFooter}\n"
 
-                // Cetak
                 printer.printFormattedText(text)
 
-                // Beritahu User Sukses
                 withContext(Dispatchers.Main) {
                     Toast.makeText(context, "Struk Berhasil Dicetak", Toast.LENGTH_SHORT).show()
                 }
@@ -128,12 +109,7 @@ object PrinterHelper {
             } catch (e: Exception) {
                 e.printStackTrace()
                 withContext(Dispatchers.Main) {
-                    val message = when {
-                        e.message?.contains("socket closed") == true -> "Koneksi printer terputus/mati."
-                        e.message?.contains("connect") == true -> "Gagal terhubung. Cek nyala printer."
-                        else -> "Gagal Cetak: ${e.message}"
-                    }
-                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                    Toast.makeText(context, "Gagal Cetak: ${e.message}", Toast.LENGTH_LONG).show()
                 }
             }
         }

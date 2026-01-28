@@ -19,7 +19,8 @@ class InventoryViewModel(
     private val productDao: ProductDao,
     private val categoryDao: CategoryDao,
     private val unitDao: UnitDao,
-    private val customerDao: CustomerDao // Tambahan untuk DebtScreen
+    private val customerDao: CustomerDao,
+    private val debtTransactionDao: DebtTransactionDao
 ) : ViewModel() {
 
     val allProducts = productDao.getAllProducts().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -60,6 +61,7 @@ class InventoryViewModel(
         productDao.deleteProduct(product)
     }
 
+
     // --- CRUD MASTER LAINNYA ---
     fun addCategory(name: String) = viewModelScope.launch { categoryDao.insertCategory(Category(name = name)) }
     fun deleteCategory(category: Category) = viewModelScope.launch { categoryDao.deleteCategory(category) }
@@ -68,9 +70,20 @@ class InventoryViewModel(
 
     // --- PELANGGAN & HUTANG (Untuk DebtScreen) ---
     fun addCustomer(name: String, phone: String) = viewModelScope.launch { customerDao.insertCustomer(Customer(name = name, phoneNumber = phone, totalDebt = 0.0)) }
-    fun deleteCustomer(c: Customer) = viewModelScope.launch { customerDao.deleteCustomer(c) }
-    fun addDebt(c: Customer, amount: Double) = viewModelScope.launch { customerDao.updateCustomer(c.copy(totalDebt = c.totalDebt + amount, lastUpdated = System.currentTimeMillis())) }
-    fun payDebt(c: Customer, amount: Double) = viewModelScope.launch { customerDao.updateCustomer(c.copy(totalDebt = (c.totalDebt - amount).coerceAtLeast(0.0), lastUpdated = System.currentTimeMillis())) }
+    fun deleteCustomer(c: Customer) = viewModelScope.launch {
+        customerDao.deleteCustomer(c)
+        debtTransactionDao.deleteAllTransactionsByCustomer(c.id)
+    }
+
+    fun payDebt(c: Customer, amount: Double) = viewModelScope.launch {
+        customerDao.updateCustomer(c.copy(totalDebt = (c.totalDebt - amount).coerceAtLeast(0.0), lastUpdated = System.currentTimeMillis(), hasHistory = true))
+        debtTransactionDao.insertTransaction(DebtTransaction(customerId = c.id, type = "Bayar", amount = amount, date = System.currentTimeMillis()))
+    }
+
+    fun addDebt(c: Customer, amount: Double) = viewModelScope.launch {
+        customerDao.updateCustomer(c.copy(totalDebt = c.totalDebt + amount, lastUpdated = System.currentTimeMillis(), hasHistory = true))
+        debtTransactionDao.insertTransaction(DebtTransaction(customerId = c.id, type = "Hutang", amount = amount, date = System.currentTimeMillis()))
+    }
 
     // --- IMPORT EXCEL ---
     fun importExcel(ctx: Context, uri: Uri, onResult: (Int) -> Unit) {
@@ -92,8 +105,12 @@ class InventoryViewModel(
         } catch (e: Exception) { null }
     }
 
+
+
     // Helper simple update (untuk restock dll)
     fun update(product: Product) = viewModelScope.launch { productDao.updateProduct(product) }
     fun updateCategory(category: Category) = viewModelScope.launch { categoryDao.updateCategory(category) }
     fun updateUnit(unit: UnitModel) = viewModelScope.launch { unitDao.updateUnit(unit) }
+
+    fun getDebtHistory(customerId: Int) = debtTransactionDao.getTransactionsByCustomer(customerId)
 }

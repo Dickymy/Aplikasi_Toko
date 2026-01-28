@@ -10,5 +10,6 @@ data class Customer(
     val name: String,
     val phoneNumber: String,
     val totalDebt: Double,
-    val lastUpdated: Long = System.currentTimeMillis() // <--- KOLOM BARU (Waktu Update)
+    val lastUpdated: Long = System.currentTimeMillis(),
+    val hasHistory: Boolean = false // Field Baru: Penanda pernah hutang
 )

@@ -11,7 +11,8 @@ object AppViewModelProvider {
         // 1. InventoryViewModel
         initializer {
             val db = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as TokoApplication).database
-            InventoryViewModel(db.productDao(), db.categoryDao(), db.unitDao(), db.customerDao())
+            // Tambahkan db.debtTransactionDao() di akhir
+            InventoryViewModel(db.productDao(), db.categoryDao(), db.unitDao(), db.customerDao(), db.debtTransactionDao())
         }
 
         // 2. SalesViewModel
