@@ -12,132 +12,117 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.aplikasitokosembakoarkhan.data.Category
 import com.example.aplikasitokosembakoarkhan.data.UnitModel
 
-// --- SCREEN KATEGORI ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CategoryScreen(viewModel: ProductViewModel) {
-    val categories by viewModel.allCategories.collectAsState(initial = emptyList())
+fun CategoryScreen(
+    viewModel: InventoryViewModel = viewModel(factory = AppViewModelProvider.Factory)
+) {
+    val categories by viewModel.allCategories.collectAsState()
     var showDialog by remember { mutableStateOf(false) }
-    var currentName by remember { mutableStateOf("") }
-    var currentId by remember { mutableStateOf<Int?>(null) } // Jika null berarti Tambah, jika ada berarti Edit
+    var nameInput by remember { mutableStateOf("") }
+    var editTarget by remember { mutableStateOf<Category?>(null) }
+
+    // State Hapus
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var targetToDelete by remember { mutableStateOf<Category?>(null) }
 
     Scaffold(
         floatingActionButton = {
-            FloatingActionButton(onClick = { currentName = ""; currentId = null; showDialog = true }) {
-                Icon(Icons.Default.Add, contentDescription = "Tambah")
+            FloatingActionButton(onClick = { nameInput=""; editTarget=null; showDialog=true }) {
+                Icon(Icons.Default.Add, null)
             }
         }
-    ) { padding ->
-        Column(modifier = Modifier.padding(padding).padding(16.dp)) {
-            Text("Manajemen Kategori", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(16.dp))
-            LazyColumn {
-                items(categories) { category ->
-                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), elevation = CardDefaults.cardElevation(2.dp)) {
-                        Row(
-                            modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(category.name, fontWeight = FontWeight.Medium)
-                            Row {
-                                IconButton(onClick = { currentName = category.name; currentId = category.id; showDialog = true }) {
-                                    Icon(Icons.Default.Edit, "Edit", tint = Color.Blue)
-                                }
-                                IconButton(onClick = { viewModel.deleteCategory(category) }) {
-                                    Icon(Icons.Default.Delete, "Hapus", tint = Color.Red)
-                                }
-                            }
-                        }
+    ) { p ->
+        LazyColumn(modifier = Modifier.padding(p).padding(16.dp)) {
+            items(categories) { cat ->
+                Card(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(cat.name, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { nameInput=cat.name; editTarget=cat; showDialog=true }) { Icon(Icons.Default.Edit,null, tint=Color.Blue) }
+                        IconButton(onClick = { targetToDelete=cat; showDeleteConfirm=true }) { Icon(Icons.Default.Delete,null, tint=Color.Red) }
                     }
                 }
             }
         }
     }
 
-    if (showDialog) {
+    if(showDeleteConfirm && targetToDelete != null) {
         AlertDialog(
-            onDismissRequest = { showDialog = false },
-            title = { Text(if (currentId == null) "Tambah Kategori" else "Edit Kategori") },
-            text = { OutlinedTextField(value = currentName, onValueChange = { currentName = it }, label = { Text("Nama Kategori") }, modifier = Modifier.fillMaxWidth()) },
-            confirmButton = {
-                Button(onClick = {
-                    if (currentName.isNotEmpty()) {
-                        if (currentId == null) viewModel.addCategory(currentName)
-                        else viewModel.updateCategory(Category(id = currentId!!, name = currentName))
-                        showDialog = false
-                    }
-                }) { Text("Simpan") }
-            },
-            dismissButton = { TextButton(onClick = { showDialog = false }) { Text("Batal") } }
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Hapus Kategori?") },
+            text = { Text("Hapus '${targetToDelete!!.name}'?") },
+            confirmButton = { Button(onClick = { viewModel.deleteCategory(targetToDelete!!); showDeleteConfirm = false }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("Hapus") } },
+            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Batal") } }
+        )
+    }
+
+    if(showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog=false },
+            title = { Text(if(editTarget==null) "Tambah Kategori" else "Edit Kategori") },
+            text = { OutlinedTextField(value = nameInput, onValueChange = { nameInput=it }, label={Text("Nama")}) },
+            confirmButton = { Button(onClick = { if(nameInput.isNotEmpty()) { if(editTarget==null) viewModel.addCategory(nameInput) else viewModel.updateCategory(editTarget!!.copy(name = nameInput)); showDialog=false } }) { Text("Simpan") } },
+            dismissButton = { TextButton(onClick={showDialog=false}) { Text("Batal") } }
         )
     }
 }
 
-// --- SCREEN SATUAN ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun UnitScreen(viewModel: ProductViewModel) {
-    val units by viewModel.allUnits.collectAsState(initial = emptyList())
+fun UnitScreen(
+    viewModel: InventoryViewModel = viewModel(factory = AppViewModelProvider.Factory)
+) {
+    val units by viewModel.allUnits.collectAsState()
     var showDialog by remember { mutableStateOf(false) }
-    var currentName by remember { mutableStateOf("") }
-    var currentId by remember { mutableStateOf<Int?>(null) }
+    var nameInput by remember { mutableStateOf("") }
+    var editTarget by remember { mutableStateOf<UnitModel?>(null) }
+
+    // State Hapus
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var targetToDelete by remember { mutableStateOf<UnitModel?>(null) }
 
     Scaffold(
         floatingActionButton = {
-            FloatingActionButton(onClick = { currentName = ""; currentId = null; showDialog = true }) {
-                Icon(Icons.Default.Add, contentDescription = "Tambah")
+            FloatingActionButton(onClick = { nameInput=""; editTarget=null; showDialog=true }) {
+                Icon(Icons.Default.Add, null)
             }
         }
-    ) { padding ->
-        Column(modifier = Modifier.padding(padding).padding(16.dp)) {
-            Text("Manajemen Satuan", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-            Spacer(modifier = Modifier.height(16.dp))
-            LazyColumn {
-                items(units) { unit ->
-                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), elevation = CardDefaults.cardElevation(2.dp)) {
-                        Row(
-                            modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(unit.name, fontWeight = FontWeight.Medium)
-                            Row {
-                                IconButton(onClick = { currentName = unit.name; currentId = unit.id; showDialog = true }) {
-                                    Icon(Icons.Default.Edit, "Edit", tint = Color.Blue)
-                                }
-                                IconButton(onClick = { viewModel.deleteUnit(unit) }) {
-                                    Icon(Icons.Default.Delete, "Hapus", tint = Color.Red)
-                                }
-                            }
-                        }
+    ) { p ->
+        LazyColumn(modifier = Modifier.padding(p).padding(16.dp)) {
+            items(units) { unit ->
+                Card(modifier = Modifier.fillMaxWidth().padding(4.dp)) {
+                    Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(unit.name, modifier = Modifier.weight(1f))
+                        IconButton(onClick = { nameInput=unit.name; editTarget=unit; showDialog=true }) { Icon(Icons.Default.Edit,null, tint=Color.Blue) }
+                        IconButton(onClick = { targetToDelete=unit; showDeleteConfirm=true }) { Icon(Icons.Default.Delete,null, tint=Color.Red) }
                     }
                 }
             }
         }
     }
 
-    if (showDialog) {
+    if(showDeleteConfirm && targetToDelete != null) {
         AlertDialog(
-            onDismissRequest = { showDialog = false },
-            title = { Text(if (currentId == null) "Tambah Satuan" else "Edit Satuan") },
-            text = { OutlinedTextField(value = currentName, onValueChange = { currentName = it }, label = { Text("Nama Satuan (Pcs, Kg, dll)") }, modifier = Modifier.fillMaxWidth()) },
-            confirmButton = {
-                Button(onClick = {
-                    if (currentName.isNotEmpty()) {
-                        if (currentId == null) viewModel.addUnit(currentName)
-                        else viewModel.updateUnit(UnitModel(id = currentId!!, name = currentName))
-                        showDialog = false
-                    }
-                }) { Text("Simpan") }
-            },
-            dismissButton = { TextButton(onClick = { showDialog = false }) { Text("Batal") } }
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("Hapus Satuan?") },
+            text = { Text("Hapus '${targetToDelete!!.name}'?") },
+            confirmButton = { Button(onClick = { viewModel.deleteUnit(targetToDelete!!); showDeleteConfirm = false }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("Hapus") } },
+            dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Batal") } }
+        )
+    }
+
+    if(showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog=false },
+            title = { Text(if(editTarget==null) "Tambah Satuan" else "Edit Satuan") },
+            text = { OutlinedTextField(value = nameInput, onValueChange = { nameInput=it }, label={Text("Nama")}) },
+            confirmButton = { Button(onClick = { if(nameInput.isNotEmpty()) { if(editTarget==null) viewModel.addUnit(nameInput) else viewModel.updateUnit(editTarget!!.copy(name = nameInput)); showDialog=false } }) { Text("Simpan") } },
+            dismissButton = { TextButton(onClick={showDialog=false}) { Text("Batal") } }
         )
     }
 }

@@ -1,179 +1,213 @@
 package com.example.aplikasitokosembakoarkhan
 
-import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.activity.viewModels
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.* // Import penting untuk Column, Row, fillMaxWidth, Spacer
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.core.content.FileProvider
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.example.aplikasitokosembakoarkhan.utils.ExcelHelper
-import com.example.aplikasitokosembakoarkhan.utils.SecurityHelper
+import com.example.aplikasitokosembakoarkhan.ui.theme.AplikasiTokoSembakoArkhanTheme
+import com.example.aplikasitokosembakoarkhan.utils.SecurityHelper // Import penting untuk Cek PIN
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val viewModel: ProductViewModel by viewModels { ProductViewModel.Factory }
-        setContent { MaterialTheme { MainApp(viewModel) } }
+        setContent {
+            AplikasiTokoSembakoArkhanTheme {
+                MainApp()
+            }
+        }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainApp(viewModel: ProductViewModel) {
+fun MainApp() {
     val navController = rememberNavController()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    val productList by viewModel.allProducts.collectAsState(initial = emptyList())
+    val currentBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = currentBackStackEntry?.destination?.route ?: "dashboard"
 
-    var selectedItem by remember { mutableStateOf("Dashboard") }
-    var showMenu by remember { mutableStateOf(false) }
-    var isPinSet by remember { mutableStateOf(SecurityHelper.isPinSet(context)) }
-    var isAdminUnlocked by remember { mutableStateOf(!isPinSet) }
+    // Helper Dialog PIN
     var showPinDialog by remember { mutableStateOf(false) }
-    var pendingRoute by remember { mutableStateOf("") }
-    var pendingItemName by remember { mutableStateOf("") }
+    var targetRoute by remember { mutableStateOf("") }
 
-    fun refreshSecurityState() {
-        isPinSet = SecurityHelper.isPinSet(context)
-        if (!isPinSet) isAdminUnlocked = true
-    }
+    // Inventory ViewModel untuk Import Excel
+    val inventoryViewModel: InventoryViewModel = viewModel(factory = AppViewModelProvider.Factory)
+    val context = androidx.compose.ui.platform.LocalContext.current
 
-    fun navigateTo(route: String, itemName: String, restricted: Boolean) {
-        scope.launch { drawerState.close() }
-        refreshSecurityState()
-        if (!isPinSet || !restricted || isAdminUnlocked) {
-            selectedItem = itemName
-            navController.navigate(route) { if (route == "dashboard") popUpTo("dashboard") { inclusive = true } }
-        } else {
-            pendingRoute = route; pendingItemName = itemName; showPinDialog = true
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) {
+            inventoryViewModel.importExcel(context, uri) { count ->
+                Toast.makeText(context, "Berhasil import $count barang", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
-    val launcherImport = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-        onResult = { uri -> uri?.let { viewModel.importExcel(context, it) { c -> scope.launch { Toast.makeText(context, "Impor $c berhasil!", Toast.LENGTH_SHORT).show() } } } }
+    // --- STRUKTUR MENU SIDEBAR ---
+    val menuGroups = listOf(
+        MenuGroup("Utama", listOf(
+            MenuItem("Dashboard", "dashboard", Icons.Default.Dashboard)
+        )),
+        MenuGroup("Transaksi", listOf(
+            MenuItem("Kasir", "sales", Icons.Default.ShoppingCart),
+            MenuItem("Restok Barang", "restock", Icons.Default.AddBox),
+            MenuItem("Hutang / Kasbon", "debt", Icons.Default.Book),
+            MenuItem("Pengeluaran", "expense", Icons.Default.MoneyOff)
+        )),
+        MenuGroup("Master Data", listOf(
+            MenuItem("Data Barang", "products", Icons.Default.Inventory),
+            MenuItem("Kategori", "categories", Icons.Default.Category),
+            MenuItem("Satuan", "units", Icons.Default.Straighten)
+        )),
+        MenuGroup("Laporan", listOf(
+            MenuItem("Laporan Keuangan", "report", Icons.Default.Assessment)
+        )),
+        MenuGroup("Admin", listOf(
+            MenuItem("Pengaturan", "settings", Icons.Default.Settings)
+        ))
     )
 
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet {
-                Text("Toko Arkhan", modifier = Modifier.padding(16.dp), style = MaterialTheme.typography.titleLarge)
+                // Header Drawer
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Toko Arkhan", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                    Text("Versi 1.0", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                }
                 HorizontalDivider()
-                NavigationDrawerItem(label = { Text("Beranda") }, selected = selectedItem == "Dashboard", icon = { Icon(Icons.Default.Home, null) }, onClick = { navigateTo("dashboard", "Dashboard", false) })
-                NavigationDrawerItem(label = { Text("Kasir") }, selected = selectedItem == "Penjualan", icon = { Icon(Icons.Default.ShoppingCart, null) }, onClick = { navigateTo("sales", "Penjualan", false) })
-                NavigationDrawerItem(label = { Text("Stok Barang") }, selected = selectedItem == "Stok Barang", icon = { Icon(Icons.Default.Inventory, null) }, onClick = { navigateTo("stock", "Stok Barang", true) })
 
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-                Text("MASTER DATA", modifier = Modifier.padding(start = 16.dp, bottom = 8.dp), style = MaterialTheme.typography.labelLarge, color = Color.Gray, fontWeight = FontWeight.Bold)
+                LazyColumn {
+                    items(menuGroups) { group ->
+                        // Judul Grup
+                        Text(
+                            text = group.title,
+                            modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
 
-                NavigationDrawerItem(label = { Text("Kategori") }, selected = selectedItem == "Kategori", icon = { Icon(Icons.Default.Category, null) }, onClick = { navigateTo("categories", "Kategori", true) })
-                NavigationDrawerItem(label = { Text("Satuan") }, selected = selectedItem == "Satuan", icon = { Icon(Icons.Default.LinearScale, null) }, onClick = { navigateTo("units", "Satuan", true) })
-                HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                        // Item Menu
+                        group.items.forEach { item ->
+                            NavigationDrawerItem(
+                                label = { Text(item.title) },
+                                icon = { Icon(item.icon, null) },
+                                selected = currentRoute == item.route,
+                                onClick = {
+                                    scope.launch { drawerState.close() }
 
-                NavigationDrawerItem(label = { Text("Kasbon") }, selected = selectedItem == "Kasbon", icon = { Icon(Icons.Default.Book, null) }, onClick = { navigateTo("debt", "Kasbon", true) })
-                NavigationDrawerItem(label = { Text("Laporan") }, selected = selectedItem == "Laporan", icon = { Icon(Icons.Default.DateRange, null) }, onClick = { navigateTo("report", "Laporan", true) })
-                NavigationDrawerItem(label = { Text("Biaya Ops.") }, selected = selectedItem == "Expenses", icon = { Icon(Icons.AutoMirrored.Filled.TrendingDown, null) }, onClick = { navigateTo("expenses", "Expenses", true) })
-                NavigationDrawerItem(label = { Text("Pengaturan") }, selected = selectedItem == "Settings", icon = { Icon(Icons.Default.Settings, null) }, onClick = { navigateTo("settings", "Settings", true) })
+                                    // --- LOGIKA KUNCI PIN YANG BENAR ---
+                                    val isSensitive = item.route in listOf("report", "expense", "settings")
+                                    val isPinSet = SecurityHelper.isPinSet(context)
+
+                                    // Hanya kunci JIKA menu sensitif DAN PIN sudah diatur
+                                    if (isSensitive && isPinSet) {
+                                        targetRoute = item.route
+                                        showPinDialog = true
+                                    } else {
+                                        // Buka langsung (Default tanpa PIN)
+                                        navController.navigate(item.route) {
+                                            popUpTo("dashboard") { saveState = true }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+                            )
+                        }
+                        Divider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(), color = Color.LightGray.copy(alpha = 0.5f))
+                    }
+
+                    // Menu Tambahan (Import Excel)
+                    item {
+                        NavigationDrawerItem(
+                            label = { Text("Import Excel") },
+                            icon = { Icon(Icons.Default.UploadFile, null) },
+                            selected = false,
+                            onClick = {
+                                scope.launch { drawerState.close() }
+                                importLauncher.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel"))
+                            },
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+                        )
+                    }
+                    item { Spacer(modifier = Modifier.height(24.dp)) }
+                }
             }
         }
     ) {
         Scaffold(
             topBar = {
-                // Tampilkan judul dinamis berdasarkan halaman
                 TopAppBar(
-                    title = { Text(selectedItem) },
-                    navigationIcon = { IconButton(onClick = { scope.launch { drawerState.open() } }) { Icon(Icons.Default.Menu, "Menu") } },
-                    actions = {
-                        refreshSecurityState()
-                        if (isPinSet) {
-                            IconButton(onClick = { if (isAdminUnlocked) { isAdminUnlocked = false; Toast.makeText(context, "Terkunci", Toast.LENGTH_SHORT).show(); navController.navigate("dashboard"); selectedItem="Dashboard" } else { pendingRoute=""; showPinDialog=true } }) {
-                                Icon(if (isAdminUnlocked) Icons.Default.LockOpen else Icons.Default.Lock, null, tint = if (isAdminUnlocked) Color(0xFF2E7D32) else Color.Red)
-                            }
-                        }
-                        if (selectedItem == "Stok Barang" && isAdminUnlocked) {
-                            IconButton(onClick = { showMenu = true }) { Icon(Icons.Default.MoreVert, "Opsi") }
-                            DropdownMenu(expanded = showMenu, onDismissRequest = { showMenu = false }) {
-                                DropdownMenuItem(text = { Text("Export ke Excel") }, onClick = {
-                                    showMenu = false
-                                    scope.launch {
-                                        if (productList.isNotEmpty()) {
-                                            val file = ExcelHelper.exportProductsToExcel(context, productList)
-                                            if (file.exists()) {
-                                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
-                                                val intent = Intent(Intent.ACTION_SEND).apply {
-                                                    type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                                                    putExtra(Intent.EXTRA_STREAM, uri)
-                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                                }
-                                                context.startActivity(Intent.createChooser(intent, "Kirim Excel"))
-                                            }
-                                        } else {
-                                            Toast.makeText(context, "Data Kosong", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                })
-                                DropdownMenuItem(text = { Text("Import dari Excel") }, onClick = { showMenu = false; launcherImport.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel")) })
-                            }
-                        }
+                    title = {
+                        val title = menuGroups.flatMap { it.items }.find { it.route == currentRoute }?.title ?: "Toko Arkhan"
+                        Text(title)
                     },
-                    colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.primaryContainer, titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer)
+                    navigationIcon = {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                            Icon(Icons.Default.Menu, null)
+                        }
+                    }
                 )
             }
-        ) { innerPadding ->
-            Box(modifier = Modifier.padding(innerPadding)) {
-                NavHost(navController = navController, startDestination = "dashboard") {
-                    composable("dashboard") { DashboardScreen(viewModel, { navigateTo("sales", "Penjualan", false) }, { navigateTo("stock", "Stok Barang", true) }) }
-                    composable("stock") { ProductScreen(viewModel) }
-                    composable("categories") { CategoryScreen(viewModel) }
-                    composable("units") { UnitScreen(viewModel) }
-                    composable("sales") { SalesScreen(viewModel) }
-                    composable("report") { ReportScreen(viewModel) }
-                    composable("debt") { DebtScreen(viewModel) }
-                    composable("expenses") { ExpenseScreen(viewModel) }
-
-                    // --- ROUTE PENGATURAN ---
-                    composable("settings") {
-                        SettingsScreen(
-                            viewModel,
-                            onNavigateToReceipt = { navController.navigate("settings_receipt") },
-                            onNavigateToBackup = { navController.navigate("settings_backup") },
-                            onNavigateToSecurity = { navController.navigate("settings_security") }
-                        )
-                    }
-                    composable("settings_receipt") { ReceiptSettingsScreen(onBack = { navController.popBackStack() }) }
-                    composable("settings_backup") { BackupSettingsScreen(viewModel, onBack = { navController.popBackStack() }) }
-                    composable("settings_security") { SecuritySettingsScreen(onBack = { navController.popBackStack() }) }
+        ) { padding ->
+            Box(modifier = Modifier.padding(padding)) {
+                NavHost(navController, startDestination = "dashboard") {
+                    composable("dashboard") { DashboardScreen() }
+                    composable("sales") { SalesScreen() }
+                    composable("products") { ProductScreen() }
+                    composable("categories") { CategoryScreen() }
+                    composable("units") { UnitScreen() }
+                    composable("restock") { RestockScreen() }
+                    composable("report") { ReportScreen() }
+                    composable("expense") { ExpenseScreen() }
+                    composable("debt") { DebtScreen() }
+                    composable("settings") { SettingsScreen() }
                 }
             }
         }
-        if (showPinDialog) {
-            Dialog(onDismissRequest = { showPinDialog = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-                PinLockScreen(onUnlock = { isAdminUnlocked = true; showPinDialog = false; if (pendingRoute.isNotEmpty()) { selectedItem = pendingItemName; navController.navigate(pendingRoute) } }, onCancel = { showPinDialog = false })
+    }
+
+    // Dialog PIN (Hanya muncul jika dipicu)
+    if (showPinDialog) {
+        PinDialog(
+            onDismiss = { showPinDialog = false },
+            onSuccess = {
+                showPinDialog = false
+                navController.navigate(targetRoute) {
+                    popUpTo("dashboard") { saveState = true }
+                    launchSingleTop = true
+                    restoreState = true
+                }
             }
-        }
+        )
     }
 }
+
+// Data Class untuk Struktur Menu
+data class MenuGroup(val title: String, val items: List<MenuItem>)
+data class MenuItem(val title: String, val route: String, val icon: ImageVector)

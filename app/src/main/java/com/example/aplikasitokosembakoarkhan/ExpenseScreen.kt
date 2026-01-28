@@ -8,7 +8,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.TrendingDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,110 +16,63 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.aplikasitokosembakoarkhan.data.Expense
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ExpenseScreen(viewModel: ProductViewModel) {
-    val expenseList by viewModel.allExpenses.collectAsState()
+fun ExpenseScreen(
+    viewModel: ReportViewModel = viewModel(factory = AppViewModelProvider.Factory)
+) {
+    val expenses by viewModel.allExpenses.collectAsState()
 
-    // State untuk Dialog Input (Tambah/Edit)
     var showDialog by remember { mutableStateOf(false) }
-    var expenseToEdit by remember { mutableStateOf<Expense?>(null) } // Jika null = Tambah, Jika isi = Edit
-    var name by remember { mutableStateOf("") }
-    var amount by remember { mutableStateOf("") }
 
-    // State untuk Dialog Hapus
+    // State HAPUS
     var showDeleteDialog by remember { mutableStateOf(false) }
     var expenseToDelete by remember { mutableStateOf<Expense?>(null) }
 
-    fun formatRupiah(valAmount: Double): String {
-        return NumberFormat.getCurrencyInstance(Locale("id", "ID")).format(valAmount)
+    var description by remember { mutableStateOf("") }
+    var amount by remember { mutableStateOf("") }
+    var isEditing by remember { mutableStateOf(false) }
+    var currentExpense by remember { mutableStateOf<Expense?>(null) }
+
+    fun formatRupiah(amount: Double): String {
+        return NumberFormat.getCurrencyInstance(Locale("id", "ID")).format(amount)
     }
 
-    val totalExpense = expenseList.sumOf { it.amount }
+    val totalExpense = expenses.sumOf { it.amount }
 
     Scaffold(
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    expenseToEdit = null // Reset ke mode Tambah
-                    name = ""
-                    amount = ""
-                    showDialog = true
-                },
-                containerColor = Color(0xFFD32F2F),
-                contentColor = Color.White
-            ) { Icon(Icons.Default.Add, "Tambah") }
+            FloatingActionButton(onClick = {
+                description = ""; amount = ""; isEditing = false; showDialog = true
+            }) { Icon(Icons.Default.Add, "Tambah") }
         }
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp)) {
-            Text("Biaya Operasional", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-
+        Column(modifier = Modifier.padding(padding).padding(16.dp)) {
+            Text("Pengeluaran Operasional", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Total: ${formatRupiah(totalExpense)}", color = Color.Red, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(16.dp))
 
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("Total Pengeluaran", fontSize = 12.sp, color = Color.Red)
-                        Text(formatRupiah(totalExpense), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.Red)
-                    }
-                    Icon(Icons.Default.TrendingDown, null, tint = Color.Red, modifier = Modifier.size(32.dp))
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("Riwayat Pengeluaran", fontWeight = FontWeight.SemiBold)
-
-            LazyColumn(modifier = Modifier.fillMaxSize().padding(top = 8.dp)) {
-                items(expenseList) { expense ->
-                    // FORMAT WAKTU LENGKAP
-                    val dateStr = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale("id")).format(Date(expense.date))
-
-                    Card(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        elevation = CardDefaults.cardElevation(2.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+            LazyColumn {
+                items(expenses.sortedByDescending { it.date }) { expense ->
+                    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), elevation = CardDefaults.cardElevation(2.dp)) {
+                        Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(expense.description, fontWeight = FontWeight.Bold) // PERBAIKAN: use description
-                                Text(dateStr, fontSize = 12.sp, color = Color.Gray)
-                                Text(formatRupiah(expense.amount), color = Color.Red, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text(expense.description, fontWeight = FontWeight.Bold)
+                                Text(SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(expense.date)), style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                             }
-
-                            // Tombol Edit & Hapus
+                            Text(formatRupiah(expense.amount), color = Color.Red, fontWeight = FontWeight.Bold)
                             Row {
-                                IconButton(onClick = {
-                                    expenseToEdit = expense
-                                    name = expense.description // PERBAIKAN: use description
-                                    amount = expense.amount.toString().replace(".0", "")
-                                    showDialog = true
-                                }) {
-                                    Icon(Icons.Default.Edit, "Edit", tint = Color.Blue)
-                                }
+                                IconButton(onClick = { description = expense.description; amount = expense.amount.toInt().toString(); currentExpense = expense; isEditing = true; showDialog = true }) { Icon(Icons.Default.Edit, "Edit", tint = Color.Blue) }
                                 IconButton(onClick = {
                                     expenseToDelete = expense
                                     showDeleteDialog = true
-                                }) {
-                                    Icon(Icons.Default.Delete, "Hapus", tint = Color.Gray)
-                                }
+                                }) { Icon(Icons.Default.Delete, "Hapus", tint = Color.Gray) }
                             }
                         }
                     }
@@ -129,61 +81,42 @@ fun ExpenseScreen(viewModel: ProductViewModel) {
         }
     }
 
-    // --- DIALOG INPUT (TAMBAH / EDIT) ---
-    if (showDialog) {
-        AlertDialog(
-            onDismissRequest = { showDialog = false },
-            title = { Text(if (expenseToEdit == null) "Catat Pengeluaran" else "Edit Pengeluaran") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Keterangan") })
-                    OutlinedTextField(
-                        value = amount,
-                        onValueChange = { if(it.all { c -> c.isDigit() }) amount = it },
-                        label = { Text("Biaya (Rp)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val cost = amount.toDoubleOrNull() ?: 0.0
-                        if (name.isNotEmpty() && cost > 0) {
-                            if (expenseToEdit == null) {
-                                // Mode Tambah - pastikan parameter di ViewModel sesuai
-                                viewModel.addExpense(name, cost)
-                            } else {
-                                // Mode Edit - update menggunakan description
-                                viewModel.updateExpense(expenseToEdit!!.copy(description = name, amount = cost))
-                            }
-                            showDialog = false
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F))
-                ) { Text("Simpan") }
-            },
-            dismissButton = { TextButton(onClick = { showDialog = false }) { Text("Batal") } }
-        )
-    }
-
-    // --- DIALOG KONFIRMASI HAPUS ---
-    if (showDeleteDialog) {
+    // DIALOG KONFIRMASI HAPUS
+    if (showDeleteDialog && expenseToDelete != null) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("Hapus Data?") },
-            text = { Text("Yakin ingin menghapus pengeluaran '${expenseToDelete?.description}' senilai ${expenseToDelete?.amount}?") }, // PERBAIKAN: use description
+            text = { Text("Yakin hapus pengeluaran '${expenseToDelete!!.description}'?") },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        expenseToDelete?.let { viewModel.deleteExpense(it) }
-                        showDeleteDialog = false
-                    }
-                ) { Text("Hapus", color = Color.Red) }
+                Button(onClick = { viewModel.deleteExpense(expenseToDelete!!); showDeleteDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("Hapus") }
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteDialog = false }) { Text("Batal") }
-            }
+            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Batal") } }
+        )
+    }
+
+    // DIALOG INPUT
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text(if (isEditing) "Edit Pengeluaran" else "Tambah Pengeluaran") },
+            text = {
+                Column {
+                    OutlinedTextField(value = description, onValueChange = { description = it }, label = { Text("Keterangan") }, modifier = Modifier.fillMaxWidth())
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(value = amount, onValueChange = { if (it.all { char -> char.isDigit() }) amount = it }, label = { Text("Jumlah (Rp)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    if (description.isNotEmpty() && amount.isNotEmpty()) {
+                        val amountVal = amount.toDouble()
+                        if (isEditing && currentExpense != null) viewModel.updateExpense(currentExpense!!.copy(description = description, amount = amountVal))
+                        else viewModel.addExpense(description, amountVal)
+                        showDialog = false
+                    }
+                }) { Text("Simpan") }
+            },
+            dismissButton = { TextButton(onClick = { showDialog = false }) { Text("Batal") } }
         )
     }
 }

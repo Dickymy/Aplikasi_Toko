@@ -1,6 +1,5 @@
 package com.example.aplikasitokosembakoarkhan
 
-import android.widget.Toast
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -8,276 +7,178 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.MoneyOff
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.aplikasitokosembakoarkhan.data.Customer
 import java.text.NumberFormat
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DebtScreen(viewModel: ProductViewModel) {
-    val customerList by viewModel.allCustomers.collectAsState()
-    val context = LocalContext.current
+fun DebtScreen(
+    viewModel: InventoryViewModel = viewModel(factory = AppViewModelProvider.Factory)
+) {
+    val customers by viewModel.allCustomers.collectAsState()
+    var showAddDialog by remember { mutableStateOf(false) }
 
-    // State Dialog
-    var showAddCustomerDialog by remember { mutableStateOf(false) }
+    // State Dialog Transaksi
     var showTransactionDialog by remember { mutableStateOf(false) }
-    var showDeleteDialog by remember { mutableStateOf(false) }
-
-    // State Data Sementara
-    var tempName by remember { mutableStateOf("") }
-    var tempPhone by remember { mutableStateOf("") }
-    var tempAmount by remember { mutableStateOf("") }
-
-    // Untuk mengetahui pelanggan mana yang sedang diproses
     var selectedCustomer by remember { mutableStateOf<Customer?>(null) }
-    var isPaying by remember { mutableStateOf(false) } // True = Bayar, False = Ngutang Lagi
+    var transactionType by remember { mutableStateOf("Hutang") }
+
+    // State Dialog HAPUS (Konfirmasi)
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var customerToDelete by remember { mutableStateOf<Customer?>(null) }
+
+    var nameInput by remember { mutableStateOf("") }
+    var phoneInput by remember { mutableStateOf("") }
+    var amountInput by remember { mutableStateOf("") }
 
     fun formatRupiah(amount: Double): String {
         return NumberFormat.getCurrencyInstance(Locale("id", "ID")).format(amount)
     }
 
+    val totalPiutang = customers.sumOf { it.totalDebt }
+
     Scaffold(
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = {
-                    tempName = ""
-                    tempPhone = ""
-                    showAddCustomerDialog = true
-                },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Tambah Pelanggan")
+            FloatingActionButton(onClick = { nameInput = ""; phoneInput = ""; showAddDialog = true }) {
+                Icon(Icons.Default.Add, "Tambah Pelanggan")
             }
         }
-    ) { paddingValues ->
-        Column(modifier = Modifier.fillMaxSize().padding(paddingValues).padding(16.dp)) {
-            Text("Buku Kasbon", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-            Text("Catatan hutang pelanggan", fontSize = 14.sp, color = Color.Gray)
+    ) { padding ->
+        Column(modifier = Modifier.padding(padding).padding(16.dp)) {
+            Text("Buku Kasbon / Hutang", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Total Piutang Toko: ${formatRupiah(totalPiutang)}", color = Color.Red, fontWeight = FontWeight.Bold)
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Total Piutang Toko (Uang toko di luar)
-            val totalPiutang = customerList.sumOf { it.totalDebt }
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(2.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp).fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("Total Uang di Luar", fontSize = 12.sp, color = Color.Red)
-                        Text(formatRupiah(totalPiutang), fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.Red)
-                    }
-                    Icon(Icons.Default.MoneyOff, null, tint = Color.Red)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // List Pelanggan
-            if (customerList.isEmpty()) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Belum ada data pelanggan.", color = Color.Gray)
-                }
-            } else {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(customerList) { customer ->
-                        CustomerItem(
-                            customer = customer,
-                            formatRupiah = { formatRupiah(it) },
-                            onAddDebt = {
-                                selectedCustomer = it
-                                isPaying = false
-                                tempAmount = ""
-                                showTransactionDialog = true
-                            },
-                            onPayDebt = {
-                                selectedCustomer = it
-                                isPaying = true
-                                tempAmount = ""
-                                showTransactionDialog = true
-                            },
-                            onDelete = {
-                                selectedCustomer = it
-                                showDeleteDialog = true
+            LazyColumn {
+                items(customers) { customer ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        elevation = CardDefaults.cardElevation(2.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Person, null, tint = Color.Gray)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(customer.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                    Text(customer.phoneNumber, fontSize = 12.sp, color = Color.Gray)
+                                }
+                                IconButton(onClick = {
+                                    customerToDelete = customer
+                                    showDeleteDialog = true // Trigger Dialog
+                                }) {
+                                    Icon(Icons.Default.Delete, "Hapus", tint = Color.Gray)
+                                }
                             }
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    // --- DIALOG 1: TAMBAH PELANGGAN BARU ---
-    if (showAddCustomerDialog) {
-        AlertDialog(
-            onDismissRequest = { showAddCustomerDialog = false },
-            title = { Text("Pelanggan Baru") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = tempName, onValueChange = { tempName = it }, label = { Text("Nama Pelanggan") }, leadingIcon = { Icon(Icons.Default.Person, null) })
-                    OutlinedTextField(value = tempPhone, onValueChange = { tempPhone = it }, label = { Text("No. HP (Opsional)") }, leadingIcon = { Icon(Icons.Default.Phone, null) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
-                }
-            },
-            confirmButton = {
-                Button(onClick = {
-                    if (tempName.isNotEmpty()) {
-                        viewModel.addCustomer(tempName, tempPhone)
-                        showAddCustomerDialog = false
-                        Toast.makeText(context, "Pelanggan ditambahkan", Toast.LENGTH_SHORT).show()
-                    }
-                }) { Text("Simpan") }
-            },
-            dismissButton = { TextButton(onClick = { showAddCustomerDialog = false }) { Text("Batal") } }
-        )
-    }
-
-    // --- DIALOG 2: TRANSAKSI (TAMBAH HUTANG / BAYAR) ---
-    if (showTransactionDialog && selectedCustomer != null) {
-        AlertDialog(
-            onDismissRequest = { showTransactionDialog = false },
-            title = { Text(if (isPaying) "Bayar Hutang" else "Tambah Hutang") },
-            text = {
-                Column {
-                    Text("Pelanggan: ${selectedCustomer?.name}", fontWeight = FontWeight.Bold)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = tempAmount,
-                        onValueChange = { if (it.all { c -> c.isDigit() }) tempAmount = it },
-                        label = { Text("Nominal (Rp)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val amount = tempAmount.toDoubleOrNull() ?: 0.0
-                        if (amount > 0) {
-                            if (isPaying) {
-                                viewModel.payDebt(selectedCustomer!!, amount)
-                                Toast.makeText(context, "Pembayaran diterima!", Toast.LENGTH_SHORT).show()
-                            } else {
-                                viewModel.addDebt(selectedCustomer!!, amount)
-                                Toast.makeText(context, "Hutang dicatat!", Toast.LENGTH_SHORT).show()
+                            Divider(modifier = Modifier.padding(vertical = 8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Sisa Hutang:", fontSize = 14.sp)
+                                Text(formatRupiah(customer.totalDebt), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = if(customer.totalDebt > 0) Color.Red else Color(0xFF2E7D32))
                             }
-                            showTransactionDialog = false
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
+                                OutlinedButton(onClick = {
+                                    selectedCustomer = customer
+                                    transactionType = "Bayar"
+                                    amountInput = ""
+                                    showTransactionDialog = true
+                                }, modifier = Modifier.weight(1f)) { Text("Bayar") }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(onClick = {
+                                    selectedCustomer = customer
+                                    transactionType = "Hutang"
+                                    amountInput = ""
+                                    showTransactionDialog = true
+                                }, modifier = Modifier.weight(1f)) { Text("Ngutang") }
+                            }
                         }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = if (isPaying) Color(0xFF4CAF50) else Color(0xFFE53935))
-                ) { Text(if (isPaying) "TERIMA BAYARAN" else "CATAT HUTANG") }
-            },
-            dismissButton = { TextButton(onClick = { showTransactionDialog = false }) { Text("Batal") } }
-        )
+                    }
+                }
+            }
+        }
     }
 
-    // --- DIALOG 3: HAPUS PELANGGAN ---
-    if (showDeleteDialog && selectedCustomer != null) {
+    // DIALOG KONFIRMASI HAPUS
+    if (showDeleteDialog && customerToDelete != null) {
         AlertDialog(
             onDismissRequest = { showDeleteDialog = false },
             title = { Text("Hapus Pelanggan?") },
-            text = { Text("Yakin ingin menghapus '${selectedCustomer?.name}'? Riwayat hutang akan hilang.") },
+            text = { Text("Yakin ingin menghapus '${customerToDelete!!.name}'? Data hutang akan hilang permanen.") },
             confirmButton = {
-                TextButton(onClick = {
-                    viewModel.deleteCustomer(selectedCustomer!!)
-                    showDeleteDialog = false
-                    Toast.makeText(context, "Dihapus", Toast.LENGTH_SHORT).show()
-                }) { Text("Hapus", color = Color.Red) }
+                Button(
+                    onClick = {
+                        viewModel.deleteCustomer(customerToDelete!!)
+                        showDeleteDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                ) { Text("Hapus") }
             },
             dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Batal") } }
         )
     }
-}
 
-@Composable
-fun CustomerItem(
-    customer: Customer,
-    formatRupiah: (Double) -> String,
-    onAddDebt: (Customer) -> Unit,
-    onPayDebt: (Customer) -> Unit,
-    onDelete: (Customer) -> Unit
-) {
-    // Format Waktu Terakhir Update
-    val lastUpdateStr = if (customer.lastUpdated > 0L) {
-        SimpleDateFormat("dd MMM, HH:mm", Locale("id")).format(Date(customer.lastUpdated))
-    } else {
-        "-"
+    // DIALOG TAMBAH PELANGGAN
+    if (showAddDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            title = { Text("Pelanggan Baru") },
+            text = {
+                Column {
+                    OutlinedTextField(value = nameInput, onValueChange = { nameInput = it }, label = { Text("Nama Pelanggan") })
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(value = phoneInput, onValueChange = { phoneInput = it }, label = { Text("No. HP (Opsional)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
+                }
+            },
+            confirmButton = { Button(onClick = { if(nameInput.isNotEmpty()) { viewModel.addCustomer(nameInput, phoneInput); showAddDialog = false } }) { Text("Simpan") } },
+            dismissButton = { TextButton(onClick = { showAddDialog = false }) { Text("Batal") } }
+        )
     }
 
-    Card(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        elevation = CardDefaults.cardElevation(2.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White)
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+    // DIALOG TRANSAKSI
+    if (showTransactionDialog && selectedCustomer != null) {
+        AlertDialog(
+            onDismissRequest = { showTransactionDialog = false },
+            title = { Text(if(transactionType == "Bayar") "Terima Pembayaran" else "Tambah Catatan Hutang") },
+            text = {
                 Column {
-                    Text(customer.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    if (customer.phoneNumber.isNotEmpty()) {
-                        Text(customer.phoneNumber, fontSize = 12.sp, color = Color.Gray)
-                    }
-                }
-                IconButton(onClick = { onDelete(customer) }, modifier = Modifier.size(24.dp)) {
-                    Icon(Icons.Default.Delete, "Hapus", tint = Color.LightGray)
-                }
-            }
-
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Sisa Hutang:", fontSize = 12.sp, color = Color.Gray)
-                    Text(
-                        formatRupiah(customer.totalDebt),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (customer.totalDebt > 0) Color.Red else Color(0xFF388E3C)
+                    Text("Pelanggan: ${selectedCustomer!!.name}")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = amountInput,
+                        onValueChange = { if(it.all { c -> c.isDigit() }) amountInput = it },
+                        label = { Text("Nominal (Rp)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Update: $lastUpdateStr", fontSize = 10.sp, color = Color.Gray)
                 }
-
-                // Tombol Aksi
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(
-                        onClick = { onAddDebt(customer) },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
-                        contentPadding = PaddingValues(horizontal = 12.dp)
-                    ) {
-                        Text("+ Ngutang", fontSize = 12.sp)
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val amount = amountInput.toDoubleOrNull() ?: 0.0
+                    if (amount > 0) {
+                        if (transactionType == "Bayar") viewModel.payDebt(selectedCustomer!!, amount) else viewModel.addDebt(selectedCustomer!!, amount)
+                        showTransactionDialog = false
                     }
-
-                    Button(
-                        onClick = { onPayDebt(customer) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50)),
-                        contentPadding = PaddingValues(horizontal = 12.dp),
-                        enabled = customer.totalDebt > 0
-                    ) {
-                        Text("Bayar", fontSize = 12.sp)
-                    }
-                }
-            }
-        }
+                }) { Text("Simpan") }
+            },
+            dismissButton = { TextButton(onClick = { showTransactionDialog = false }) { Text("Batal") } }
+        )
     }
 }

@@ -1,24 +1,18 @@
 package com.example.aplikasitokosembakoarkhan
 
-import android.Manifest
-import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothManager
-import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
-import android.provider.Settings
+import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -29,142 +23,221 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.app.ActivityCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.aplikasitokosembakoarkhan.utils.SecurityHelper
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import kotlin.system.exitProcess
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    viewModel: ProductViewModel = viewModel(),
-    onNavigateToReceipt: () -> Unit,
-    onNavigateToBackup: () -> Unit,
-    onNavigateToSecurity: () -> Unit
+    viewModel: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory)
 ) {
+    // State Navigasi Internal (Menu -> SubMenu)
+    var currentSection by remember { mutableStateOf("menu") } // menu, receipt, backup, security
+
+    // Handle Back Button (Jika di submenu, kembali ke menu utama)
+    BackHandler(enabled = currentSection != "menu") {
+        currentSection = "menu"
+    }
+
+    when (currentSection) {
+        "menu" -> SettingsMenu(
+            onNavigate = { section -> currentSection = section }
+        )
+        "receipt" -> ReceiptSettings(viewModel) { currentSection = "menu" }
+        "backup" -> BackupSettings(viewModel) { currentSection = "menu" }
+        "security" -> SecuritySettings(viewModel) { currentSection = "menu" }
+    }
+}
+
+// --- 1. HALAMAN MENU UTAMA ---
+@Composable
+fun SettingsMenu(onNavigate: (String) -> Unit) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Pengaturan", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(16.dp))
+        Text("Pengaturan", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(24.dp))
 
-        LazyColumn {
-            item { SettingsItem("Pengaturan Struk", "Edit nama toko dan alamat", Icons.Default.Receipt, onNavigateToReceipt) }
-            item { SettingsItem("Backup & Restore", "Amankan data ke file ZIP", Icons.Default.CloudUpload, onNavigateToBackup) }
-            item { SettingsItem("Keamanan", "Atur PIN dan kunci aplikasi", Icons.Default.Security, onNavigateToSecurity) }
-        }
-
-        Spacer(modifier = Modifier.weight(1f))
-        Text("Versi Aplikasi 1.0.0", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.align(Alignment.CenterHorizontally))
+        SettingsItem(
+            title = "Identitas Toko & Struk",
+            subtitle = "Atur nama toko, alamat, dan footer struk",
+            icon = Icons.AutoMirrored.Filled.ReceiptLong,
+            onClick = { onNavigate("receipt") }
+        )
+        SettingsItem(
+            title = "Backup & Restore",
+            subtitle = "Amankan data database & gambar",
+            icon = Icons.Default.Backup,
+            onClick = { onNavigate("backup") }
+        )
+        SettingsItem(
+            title = "Keamanan (PIN)",
+            subtitle = "Atur kunci masuk untuk menu admin",
+            icon = Icons.Default.Lock,
+            onClick = { onNavigate("security") }
+        )
     }
 }
 
 @Composable
 fun SettingsItem(title: String, subtitle: String, icon: ImageVector, onClick: () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onClick() }, elevation = CardDefaults.cardElevation(2.dp)) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp).clickable { onClick() },
+        elevation = CardDefaults.cardElevation(2.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
             Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Column {
                 Text(title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Text(subtitle, fontSize = 12.sp, color = Color.Gray)
             }
-            Icon(Icons.Default.ChevronRight, null, tint = Color.Gray)
         }
     }
 }
 
+// --- 2. SUB-MENU PENGATURAN STRUK ---
 @Composable
-fun ReceiptSettingsScreen(onBack: () -> Unit) {
+fun ReceiptSettings(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val profile by viewModel.storeProfile.collectAsState()
     val context = LocalContext.current
-    val prefs = remember { AppPreferences(context) }
-    var storeName by remember { mutableStateOf(prefs.storeName) }
-    var storeAddress by remember { mutableStateOf(prefs.storeAddress) }
-    var storePhone by remember { mutableStateOf(prefs.storePhone) }
-    var footer by remember { mutableStateOf(prefs.receiptFooter) }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Kembali") }; Text("Edit Struk", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-        Spacer(modifier = Modifier.height(16.dp))
-        OutlinedTextField(value = storeName, onValueChange = { storeName = it }, label = { Text("Nama Toko") }, modifier = Modifier.fillMaxWidth())
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(value = storeAddress, onValueChange = { storeAddress = it }, label = { Text("Alamat Toko") }, modifier = Modifier.fillMaxWidth())
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(value = storePhone, onValueChange = { storePhone = it }, label = { Text("No. HP") }, modifier = Modifier.fillMaxWidth())
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(value = footer, onValueChange = { footer = it }, label = { Text("Footer Struk") }, modifier = Modifier.fillMaxWidth())
-        Spacer(modifier = Modifier.height(24.dp))
-        Button(onClick = { prefs.storeName=storeName; prefs.storeAddress=storeAddress; prefs.storePhone=storePhone; prefs.receiptFooter=footer; Toast.makeText(context, "Disimpan", Toast.LENGTH_SHORT).show(); onBack() }, modifier = Modifier.fillMaxWidth()) { Text("Simpan") }
-    }
-}
+    var name by remember { mutableStateOf(profile.name) }
+    var address by remember { mutableStateOf(profile.address) }
+    var phone by remember { mutableStateOf(profile.phone) }
+    var footer by remember { mutableStateOf(profile.footer) }
 
-@Composable
-fun BackupSettingsScreen(viewModel: ProductViewModel, onBack: () -> Unit) {
-    val context = LocalContext.current
-    var showRestoreWarning by remember { mutableStateOf(false) }
-
-    val backupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
-        if (uri != null) viewModel.backupData(context, uri, { Toast.makeText(context, "Backup Berhasil!", Toast.LENGTH_SHORT).show() }, { Toast.makeText(context, "Gagal: $it", Toast.LENGTH_SHORT).show() })
-    }
-    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) viewModel.restoreData(context, uri, {
-            Toast.makeText(context, "Restore Sukses! Restart Aplikasi...", Toast.LENGTH_LONG).show()
-            val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-            intent?.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            context.startActivity(intent)
-            exitProcess(0)
-        }, { Toast.makeText(context, "Gagal: $it", Toast.LENGTH_SHORT).show() })
-    }
-
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Kembali") }; Text("Backup & Restore", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-        Spacer(modifier = Modifier.height(16.dp))
-        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD))) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Backup Data", fontWeight = FontWeight.Bold); Text("Simpan Database & Gambar (ZIP).", fontSize = 12.sp)
-                Button(onClick = { backupLauncher.launch("Backup_Toko_${SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault()).format(Date())}.zip") }) { Text("Backup Sekarang") }
-            }
-        }
-        Spacer(modifier = Modifier.height(16.dp))
-        Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE))) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Restore Data", fontWeight = FontWeight.Bold); Text("Kembalikan data dari file backup.", fontSize = 12.sp)
-                Button(onClick = { showRestoreWarning = true }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("Pilih File Backup") }
-            }
-        }
-    }
-
-    if (showRestoreWarning) {
-        AlertDialog(onDismissRequest = { showRestoreWarning = false }, icon = { Icon(Icons.Default.Warning, null, tint = Color.Red) }, title = { Text("Peringatan Keras!") }, text = { Text("Yakin ingin restore? Data saat ini akan TIMPA dan HILANG selamanya.") }, confirmButton = { Button(onClick = { showRestoreWarning = false; restoreLauncher.launch(arrayOf("application/zip")) }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("Ya, Timpa Data") } }, dismissButton = { TextButton(onClick = { showRestoreWarning = false }) { Text("Batal") } })
-    }
-}
-
-@Composable
-fun SecuritySettingsScreen(onBack: () -> Unit) {
-    val context = LocalContext.current
-    var isPinSet by remember { mutableStateOf(SecurityHelper.isPinSet(context)) }
-    var showSetPinDialog by remember { mutableStateOf(false) }
-    var newPin by remember { mutableStateOf("") }
-
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) { IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Kembali") }; Text("Keamanan", fontSize = 20.sp, fontWeight = FontWeight.Bold) }
-        Spacer(modifier = Modifier.height(16.dp))
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Row(modifier = Modifier.padding(16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column { Text("PIN Pengaman", fontWeight = FontWeight.Bold); Text(if (isPinSet) "Aktif" else "Nonaktif", fontSize = 12.sp, color = if(isPinSet) Color(0xFF2E7D32) else Color.Red) }
-                Button(onClick = { showSetPinDialog = true }) { Text(if(isPinSet) "Ubah" else "Buat") }
-            }
-        }
-        if (isPinSet) {
+    Scaffold(
+        topBar = { SettingsTopBar("Pengaturan Struk", onBack) }
+    ) { p ->
+        Column(modifier = Modifier.padding(p).padding(16.dp)) {
+            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nama Toko") }, modifier = Modifier.fillMaxWidth())
             Spacer(modifier = Modifier.height(8.dp))
-            OutlinedButton(onClick = { SecurityHelper.removePin(context); isPinSet = false; Toast.makeText(context, "PIN Dihapus", Toast.LENGTH_SHORT).show() }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red)) { Text("Hapus PIN") }
+            OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text("Alamat Toko") }, modifier = Modifier.fillMaxWidth())
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("No. HP / Telp") }, modifier = Modifier.fillMaxWidth())
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(value = footer, onValueChange = { footer = it }, label = { Text("Footer Struk (Pesan Bawah)") }, modifier = Modifier.fillMaxWidth())
+
+            Spacer(modifier = Modifier.height(24.dp))
+            Button(
+                onClick = {
+                    viewModel.saveStoreProfile(name, address, phone, footer)
+                    Toast.makeText(context, "Disimpan!", Toast.LENGTH_SHORT).show()
+                    onBack()
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("SIMPAN PERUBAHAN") }
+        }
+    }
+}
+
+// --- 3. SUB-MENU BACKUP & RESTORE ---
+@Composable
+fun BackupSettings(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val context = LocalContext.current
+    var isLoading by remember { mutableStateOf(false) }
+
+    val backupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri: Uri? ->
+        if (uri != null) {
+            isLoading = true
+            viewModel.backupData(uri,
+                onSuccess = { isLoading = false; Toast.makeText(context, "Backup Berhasil!", Toast.LENGTH_SHORT).show() },
+                onError = { isLoading = false; Toast.makeText(context, "Gagal: $it", Toast.LENGTH_LONG).show() }
+            )
         }
     }
 
-    if (showSetPinDialog) {
-        AlertDialog(onDismissRequest = { showSetPinDialog = false }, title = { Text("Set PIN (6 Angka)") }, text = { OutlinedTextField(value = newPin, onValueChange = { if(it.length<=6 && it.all{c->c.isDigit()}) newPin=it }, label = { Text("PIN") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword)) }, confirmButton = { Button(onClick = { if(newPin.length>=4) { SecurityHelper.setPin(context, newPin); isPinSet=true; showSetPinDialog=false; Toast.makeText(context, "Disimpan", Toast.LENGTH_SHORT).show() } }) { Text("Simpan") } }, dismissButton = { TextButton(onClick = { showSetPinDialog = false }) { Text("Batal") } })
+    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
+        if (uri != null) {
+            isLoading = true
+            viewModel.restoreData(uri,
+                onSuccess = { isLoading = false; Toast.makeText(context, "Restore Berhasil! Restart Aplikasi.", Toast.LENGTH_LONG).show() },
+                onError = { isLoading = false; Toast.makeText(context, "Gagal: $it", Toast.LENGTH_LONG).show() }
+            )
+        }
     }
+
+    Scaffold(topBar = { SettingsTopBar("Backup & Restore", onBack) }) { p ->
+        Column(modifier = Modifier.padding(p).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (isLoading) CircularProgressIndicator() else {
+                Button(onClick = { backupLauncher.launch("Backup_Toko_${System.currentTimeMillis()}.zip") }, modifier = Modifier.fillMaxWidth()) {
+                    Icon(Icons.Default.Upload, null); Spacer(modifier = Modifier.width(8.dp)); Text("Backup Data")
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                OutlinedButton(onClick = { restoreLauncher.launch(arrayOf("application/zip")) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red)) {
+                    Icon(Icons.Default.Download, null); Spacer(modifier = Modifier.width(8.dp)); Text("Restore Data")
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Restore akan menimpa data lama!", color = Color.Gray, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+// --- 4. SUB-MENU KEAMANAN ---
+@Composable
+fun SecuritySettings(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    var isPinSet by remember { mutableStateOf(viewModel.isPinSet()) }
+    var pinInput by remember { mutableStateOf("") }
+    val context = LocalContext.current
+
+    Scaffold(topBar = { SettingsTopBar("Keamanan (PIN)", onBack) }) { p ->
+        Column(modifier = Modifier.padding(p).padding(16.dp)) {
+            if (isPinSet) {
+                Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)), modifier = Modifier.fillMaxWidth()) {
+                    Row(modifier = Modifier.padding(16.dp)) {
+                        Icon(Icons.Default.Lock, null, tint = Color(0xFF2E7D32))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Aplikasi dilindungi PIN", color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = {
+                        viewModel.removePin()
+                        isPinSet = false
+                        Toast.makeText(context, "PIN Dihapus", Toast.LENGTH_SHORT).show()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Hapus PIN") }
+            } else {
+                Text("Pasang PIN Baru (6 Digit):")
+                OutlinedTextField(
+                    value = pinInput,
+                    onValueChange = { if (it.length <= 6 && it.all { c -> c.isDigit() }) pinInput = it },
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Button(
+                    onClick = {
+                        if (pinInput.length >= 4) {
+                            viewModel.setPin(pinInput)
+                            isPinSet = true
+                            pinInput = ""
+                            Toast.makeText(context, "PIN Disimpan", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(context, "Minimal 4 digit", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = pinInput.length >= 4
+                ) { Text("Simpan PIN") }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SettingsTopBar(title: String, onBack: () -> Unit) {
+    TopAppBar(
+        title = { Text(title) },
+        navigationIcon = {
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Kembali") }
+        }
+    )
 }
