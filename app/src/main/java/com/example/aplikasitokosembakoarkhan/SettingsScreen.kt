@@ -5,9 +5,11 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -32,25 +34,21 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 fun SettingsScreen(
     viewModel: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory)
 ) {
-    // State Navigasi Internal (Menu -> SubMenu)
-    var currentSection by remember { mutableStateOf("menu") } // menu, receipt, backup, security
+    var currentSection by remember { mutableStateOf("menu") }
 
-    // Handle Back Button (Jika di submenu, kembali ke menu utama)
     BackHandler(enabled = currentSection != "menu") {
         currentSection = "menu"
     }
 
     when (currentSection) {
-        "menu" -> SettingsMenu(
-            onNavigate = { section -> currentSection = section }
-        )
+        "menu" -> SettingsMenu(onNavigate = { section -> currentSection = section })
         "receipt" -> ReceiptSettings(viewModel) { currentSection = "menu" }
         "backup" -> BackupSettings(viewModel) { currentSection = "menu" }
         "security" -> SecuritySettings(viewModel) { currentSection = "menu" }
+        "about" -> AboutSection(onBack = { currentSection = "menu" }) // Section Baru
     }
 }
 
-// --- 1. HALAMAN MENU UTAMA ---
 @Composable
 fun SettingsMenu(onNavigate: (String) -> Unit) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
@@ -75,6 +73,12 @@ fun SettingsMenu(onNavigate: (String) -> Unit) {
             icon = Icons.Default.Lock,
             onClick = { onNavigate("security") }
         )
+        SettingsItem(
+            title = "Tentang Aplikasi",
+            subtitle = "Informasi Pengembang",
+            icon = Icons.Default.Info,
+            onClick = { onNavigate("about") }
+        )
     }
 }
 
@@ -96,7 +100,57 @@ fun SettingsItem(title: String, subtitle: String, icon: ImageVector, onClick: ()
     }
 }
 
-// --- 2. SUB-MENU PENGATURAN STRUK ---
+@Composable
+fun AboutSection(onBack: () -> Unit) {
+    Scaffold(topBar = { SettingsTopBar("Tentang Aplikasi", onBack) }) { p ->
+        Column(
+            modifier = Modifier.padding(p).fillMaxSize().padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            // Icon Logo
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.size(100.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Store,
+                        contentDescription = null,
+                        modifier = Modifier.size(50.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Text("Aplikasi Toko Sembako Arkhan", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text("Versi 1.0", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD))
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("Dikembangkan oleh:", fontSize = 12.sp, color = Color.Gray)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Dicky Muhammad Yahya", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1565C0))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("© 2024 Hak Cipta Dilindungi", fontSize = 10.sp, color = Color.LightGray)
+        }
+    }
+}
+
 @Composable
 fun ReceiptSettings(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val profile by viewModel.storeProfile.collectAsState()
@@ -132,7 +186,6 @@ fun ReceiptSettings(viewModel: SettingsViewModel, onBack: () -> Unit) {
     }
 }
 
-// --- 3. SUB-MENU BACKUP & RESTORE ---
 @Composable
 fun BackupSettings(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
@@ -175,7 +228,6 @@ fun BackupSettings(viewModel: SettingsViewModel, onBack: () -> Unit) {
     }
 }
 
-// --- 4. SUB-MENU KEAMANAN ---
 @Composable
 fun SecuritySettings(viewModel: SettingsViewModel, onBack: () -> Unit) {
     var isPinSet by remember { mutableStateOf(viewModel.isPinSet()) }

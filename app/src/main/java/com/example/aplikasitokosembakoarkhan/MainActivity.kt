@@ -7,7 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.* // Import penting untuk Column, Row, fillMaxWidth, Spacer
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -26,7 +26,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.aplikasitokosembakoarkhan.ui.theme.AplikasiTokoSembakoArkhanTheme
-import com.example.aplikasitokosembakoarkhan.utils.SecurityHelper // Import penting untuk Cek PIN
+import com.example.aplikasitokosembakoarkhan.utils.SecurityHelper
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -49,13 +49,20 @@ fun MainApp() {
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route ?: "dashboard"
 
-    // Helper Dialog PIN
+    // --- STATE KEAMANAN ---
+    // Apakah sesi saat ini sudah terbuka (sudah masukkan PIN)?
+    var isSessionUnlocked by remember { mutableStateOf(false) }
+
+    // Dialog PIN
     var showPinDialog by remember { mutableStateOf(false) }
     var targetRoute by remember { mutableStateOf("") }
 
     // Inventory ViewModel untuk Import Excel
     val inventoryViewModel: InventoryViewModel = viewModel(factory = AppViewModelProvider.Factory)
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    // Cek apakah PIN diatur di pengaturan (Cek setiap kali rute berubah untuk update icon)
+    val isPinSet = remember(currentRoute) { SecurityHelper.isPinSet(context) }
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri != null) {
@@ -65,7 +72,9 @@ fun MainApp() {
         }
     }
 
-    // --- STRUKTUR MENU SIDEBAR ---
+    // Daftar Menu yang DILINDUNGI PIN (Sensitive)
+    val sensitiveRoutes = listOf("report", "expense", "settings", "customers", "products")
+
     val menuGroups = listOf(
         MenuGroup("Utama", listOf(
             MenuItem("Dashboard", "dashboard", Icons.Default.Dashboard)
@@ -78,6 +87,7 @@ fun MainApp() {
         )),
         MenuGroup("Master Data", listOf(
             MenuItem("Data Barang", "products", Icons.Default.Inventory),
+            MenuItem("Data Pelanggan", "customers", Icons.Default.People),
             MenuItem("Kategori", "categories", Icons.Default.Category),
             MenuItem("Satuan", "units", Icons.Default.Straighten)
         )),
@@ -93,7 +103,6 @@ fun MainApp() {
         drawerState = drawerState,
         drawerContent = {
             ModalDrawerSheet {
-                // Header Drawer
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("Toko Arkhan", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                     Text("Versi 1.0", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
@@ -102,7 +111,6 @@ fun MainApp() {
 
                 LazyColumn {
                     items(menuGroups) { group ->
-                        // Judul Grup
                         Text(
                             text = group.title,
                             modifier = Modifier.padding(start = 16.dp, top = 16.dp, bottom = 8.dp),
@@ -110,7 +118,6 @@ fun MainApp() {
                             color = MaterialTheme.colorScheme.primary
                         )
 
-                        // Item Menu
                         group.items.forEach { item ->
                             NavigationDrawerItem(
                                 label = { Text(item.title) },
@@ -119,16 +126,15 @@ fun MainApp() {
                                 onClick = {
                                     scope.launch { drawerState.close() }
 
-                                    // --- LOGIKA KUNCI PIN YANG BENAR ---
-                                    val isSensitive = item.route in listOf("report", "expense", "settings")
-                                    val isPinSet = SecurityHelper.isPinSet(context)
+                                    // LOGIKA PIN CERDAS (SESSION BASED)
+                                    val isSensitive = item.route in sensitiveRoutes
 
-                                    // Hanya kunci JIKA menu sensitif DAN PIN sudah diatur
-                                    if (isSensitive && isPinSet) {
+                                    // Jika (Menu Sensitif) DAN (Ada PIN) DAN (Belum Unlock Sesi) -> Minta PIN
+                                    if (isSensitive && isPinSet && !isSessionUnlocked) {
                                         targetRoute = item.route
                                         showPinDialog = true
                                     } else {
-                                        // Buka langsung (Default tanpa PIN)
+                                        // Buka Langsung (Karena tidak sensitif ATAU sudah unlock)
                                         navController.navigate(item.route) {
                                             popUpTo("dashboard") { saveState = true }
                                             launchSingleTop = true
@@ -142,7 +148,6 @@ fun MainApp() {
                         Divider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp).fillMaxWidth(), color = Color.LightGray.copy(alpha = 0.5f))
                     }
 
-                    // Menu Tambahan (Import Excel)
                     item {
                         NavigationDrawerItem(
                             label = { Text("Import Excel") },
@@ -150,7 +155,13 @@ fun MainApp() {
                             selected = false,
                             onClick = {
                                 scope.launch { drawerState.close() }
-                                importLauncher.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel"))
+                                // Import Excel juga dilindungi jika PIN aktif
+                                if (isPinSet && !isSessionUnlocked) {
+                                    targetRoute = "IMPORT_EXCEL" // Kode khusus
+                                    showPinDialog = true
+                                } else {
+                                    importLauncher.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel"))
+                                }
                             },
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
                         )
@@ -171,6 +182,32 @@ fun MainApp() {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
                             Icon(Icons.Default.Menu, null)
                         }
+                    },
+                    // --- UPDATE: ICON GEMBOK DI POJOK KANAN ---
+                    actions = {
+                        if (isPinSet) {
+                            IconButton(onClick = {
+                                if (isSessionUnlocked) {
+                                    // Jika sedang terbuka -> Kunci Kembali (Manual Lock)
+                                    isSessionUnlocked = false
+                                    Toast.makeText(context, "Aplikasi Terkunci", Toast.LENGTH_SHORT).show()
+                                    // Opsional: Lempar ke dashboard jika halaman saat ini sensitif
+                                    if (currentRoute in sensitiveRoutes) {
+                                        navController.navigate("dashboard")
+                                    }
+                                } else {
+                                    // Jika terkunci -> Minta PIN untuk Buka (Manual Unlock)
+                                    targetRoute = currentRoute // Tetap di halaman ini
+                                    showPinDialog = true
+                                }
+                            }) {
+                                Icon(
+                                    imageVector = if (isSessionUnlocked) Icons.Default.LockOpen else Icons.Default.Lock,
+                                    contentDescription = "Status Keamanan",
+                                    tint = if (isSessionUnlocked) Color(0xFF4CAF50) else Color(0xFFE53935) // Hijau (Buka) / Merah (Kunci)
+                                )
+                            }
+                        }
                     }
                 )
             }
@@ -180,6 +217,7 @@ fun MainApp() {
                     composable("dashboard") { DashboardScreen() }
                     composable("sales") { SalesScreen() }
                     composable("products") { ProductScreen() }
+                    composable("customers") { CustomerScreen() }
                     composable("categories") { CategoryScreen() }
                     composable("units") { UnitScreen() }
                     composable("restock") { RestockScreen() }
@@ -192,22 +230,28 @@ fun MainApp() {
         }
     }
 
-    // Dialog PIN (Hanya muncul jika dipicu)
     if (showPinDialog) {
         PinDialog(
             onDismiss = { showPinDialog = false },
             onSuccess = {
                 showPinDialog = false
-                navController.navigate(targetRoute) {
-                    popUpTo("dashboard") { saveState = true }
-                    launchSingleTop = true
-                    restoreState = true
+                isSessionUnlocked = true // --- KUNCI UTAMA: BUKA SESI ---
+                Toast.makeText(context, "Akses Admin Terbuka", Toast.LENGTH_SHORT).show()
+
+                // Navigasi ke tujuan (jika ada)
+                if (targetRoute == "IMPORT_EXCEL") {
+                    importLauncher.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel"))
+                } else if (targetRoute.isNotEmpty() && targetRoute != currentRoute) {
+                    navController.navigate(targetRoute) {
+                        popUpTo("dashboard") { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
                 }
             }
         )
     }
 }
 
-// Data Class untuk Struktur Menu
 data class MenuGroup(val title: String, val items: List<MenuItem>)
 data class MenuItem(val title: String, val route: String, val icon: ImageVector)

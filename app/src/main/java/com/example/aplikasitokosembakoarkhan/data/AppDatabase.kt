@@ -8,50 +8,36 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Product::class, Sale::class, Expense::class, Customer::class, UnitModel::class, Category::class], // Tambahkan Category::class
-    version = 3, // Naik ke versi 3
+    entities = [Product::class, Sale::class, Category::class, UnitModel::class, Expense::class, Customer::class],
+    version = 2, // Naikkan versi ke 2
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun productDao(): ProductDao
     abstract fun saleDao(): SaleDao
+    abstract fun categoryDao(): CategoryDao
+    abstract fun unitDao(): UnitDao
     abstract fun expenseDao(): ExpenseDao
     abstract fun customerDao(): CustomerDao
-    abstract fun unitDao(): UnitDao
-    abstract fun categoryDao(): CategoryDao // Tambahkan ini
 
     companion object {
         @Volatile
-        private var INSTANCE: AppDatabase? = null
+        private var Instance: AppDatabase? = null
 
-        // Migrasi dari 1 ke 2 (History)
+        // Migrasi dari Versi 1 ke 2 (Tambah kolom customerName)
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'Umum'")
-            }
-        }
-
-        // Migrasi dari 2 ke 3 (Menambahkan Tabel Categories)
-        val MIGRATION_2_3 = object : Migration(2, 3) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL("CREATE TABLE IF NOT EXISTS `categories` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL)")
-                // Isi kategori default agar tidak kosong
-                database.execSQL("INSERT INTO categories (name) VALUES ('Makanan'), ('Minuman'), ('Sembako'), ('Rokok'), ('Obat'), ('Alat Tulis')")
+                database.execSQL("ALTER TABLE sales ADD COLUMN customerName TEXT NOT NULL DEFAULT 'Umum'")
             }
         }
 
         fun getDatabase(context: Context): AppDatabase {
-            return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
-                    context.applicationContext,
-                    AppDatabase::class.java,
-                    "toko_database"
-                )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3) // Tambahkan migrasi baru
-                    .fallbackToDestructiveMigration()
+            return Instance ?: synchronized(this) {
+                Room.databaseBuilder(context, AppDatabase::class.java, "toko_database")
+                    .addMigrations(MIGRATION_1_2) // Tambahkan migrasi
+                    .fallbackToDestructiveMigration() // Jaga-jaga jika migrasi gagal
                     .build()
-                INSTANCE = instance
-                instance
+                    .also { Instance = it }
             }
         }
     }

@@ -14,13 +14,13 @@ class SalesViewModel(
     private val saleDao: SaleDao
 ) : ViewModel() {
 
-    // Kita hanya butuh list produk untuk search & scan di kasir
     val allProducts = productDao.getAllProducts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun checkout(
         cart: Map<Product, Int>,
         paymentMethod: String,
+        customerName: String, // Parameter Baru
         onSuccess: () -> Unit,
         onError: (String) -> Unit
     ) {
@@ -31,13 +31,13 @@ class SalesViewModel(
                     // Kurangi stok
                     productDao.updateProduct(product.copy(stock = product.stock - qty))
 
-                    // Hitung harga final (Grosir logic)
+                    // Hitung harga final
                     val finalSellPrice = if (product.wholesaleQty > 0 && qty >= product.wholesaleQty && product.wholesalePrice > 0)
                         product.wholesalePrice
                     else
                         product.sellPrice
 
-                    // Simpan Transaksi
+                    // Simpan Transaksi dengan Nama Pelanggan
                     saleDao.insertSale(
                         Sale(
                             productId = product.id,
@@ -45,7 +45,8 @@ class SalesViewModel(
                             quantity = qty,
                             capitalPrice = product.buyPrice * qty,
                             totalPrice = finalSellPrice * qty,
-                            date = timestamp
+                            date = timestamp,
+                            customerName = customerName // Simpan di sini
                         )
                     )
                 }

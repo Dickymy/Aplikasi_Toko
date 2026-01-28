@@ -16,16 +16,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Print
-import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -45,6 +36,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.example.aplikasitokosembakoarkhan.data.Customer
 import com.example.aplikasitokosembakoarkhan.data.Product
 import com.example.aplikasitokosembakoarkhan.utils.BarcodeScannerView
 import com.example.aplikasitokosembakoarkhan.utils.PrinterHelper
@@ -57,29 +49,40 @@ import java.util.Locale
 @Composable
 fun SalesScreen(
     viewModel: SalesViewModel = viewModel(factory = AppViewModelProvider.Factory),
-    // Update: Inject SettingsViewModel untuk ambil data toko
+    inventoryViewModel: InventoryViewModel = viewModel(factory = AppViewModelProvider.Factory),
     settingsViewModel: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory)
 ) {
     val productList by viewModel.allProducts.collectAsState()
-    val storeProfile by settingsViewModel.storeProfile.collectAsState() // Data Toko dari Pengaturan
+    val customers by inventoryViewModel.allCustomers.collectAsState()
+    // Ambil Data Kategori & Satuan untuk Filter
+    val dbCategories by inventoryViewModel.allCategories.collectAsState(initial = emptyList())
+    val dbUnits by inventoryViewModel.allUnits.collectAsState(initial = emptyList())
 
+    val storeProfile by settingsViewModel.storeProfile.collectAsState()
     val context = LocalContext.current
 
     var cart by remember { mutableStateOf(mapOf<Product, Int>()) }
     var showPaymentDialog by remember { mutableStateOf(false) }
 
-    // State Transaksi Sukses
+    // State Filter
+    var selectedFilterCategory by remember { mutableStateOf("Semua") }
+    var selectedFilterUnit by remember { mutableStateOf("Semua") }
+    var showFilterDialog by remember { mutableStateOf(false) }
+
+    // State Pelanggan
+    var selectedCustomerName by remember { mutableStateOf("Umum") }
+    var showCustomerDialog by remember { mutableStateOf(false) }
+
     var showSuccessDialog by remember { mutableStateOf(false) }
     var lastTransactionChange by remember { mutableStateOf(0.0) }
     var lastTransactionPay by remember { mutableStateOf(0.0) }
     var lastCartBackup by remember { mutableStateOf(mapOf<Product, Int>()) }
     var lastPaymentMethod by remember { mutableStateOf("Tunai") }
+    var lastCustomerName by remember { mutableStateOf("Umum") }
 
     var searchQuery by remember { mutableStateOf("") }
     var barcodeInput by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
-
-    // State Scanner
     var showScanner by remember { mutableStateOf(false) }
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
@@ -88,12 +91,17 @@ fun SalesScreen(
         if (isGranted) showScanner = true else Toast.makeText(context, "Izin kamera ditolak!", Toast.LENGTH_SHORT).show()
     }
 
-    val filteredList = productList.filter {
-        it.name.contains(searchQuery, ignoreCase = true) || it.barcode.contains(searchQuery)
+    // --- LOGIKA FILTER LENGKAP ---
+    val filteredList = productList.filter { product ->
+        val matchSearch = product.name.contains(searchQuery, ignoreCase = true) || product.barcode.contains(searchQuery)
+        val matchCategory = selectedFilterCategory == "Semua" || product.category == selectedFilterCategory
+        val matchUnit = selectedFilterUnit == "Semua" || product.unit == selectedFilterUnit
+
+        matchSearch && matchCategory && matchUnit
     }
 
     fun formatRupiah(amount: Double): String {
-        return NumberFormat.getCurrencyInstance(Locale("id", "ID")).format(amount)
+        return NumberFormat.getCurrencyInstance(Locale("id", "ID")).format(amount).replace("Rp", "Rp ").replace(",00", "")
     }
 
     fun getProductPrice(product: Product, qty: Int): Double {
@@ -106,18 +114,17 @@ fun SalesScreen(
 
     val totalPrice = cart.entries.sumOf { (product, qty) -> getProductPrice(product, qty) * qty }
 
-    // --- FUNGSI GENERATE STRUK TEXT (UPDATE: PAKAI DATA TOKO) ---
-    fun generateReceiptText(cart: Map<Product, Int>, total: Double, pay: Double, change: Double, method: String): String {
+    fun generateReceiptText(cart: Map<Product, Int>, total: Double, pay: Double, change: Double, method: String, customer: String): String {
         val sb = StringBuilder()
         val date = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale("id", "ID")).format(Date())
 
-        // Menggunakan Profile Toko dari Settings
         sb.append("*${storeProfile.name.uppercase()}*\n")
         if(storeProfile.address.isNotEmpty()) sb.append("${storeProfile.address}\n")
         if(storeProfile.phone.isNotEmpty()) sb.append("Telp: ${storeProfile.phone}\n")
 
         sb.append("--------------------------------\n")
         sb.append("Tgl: $date\n")
+        sb.append("Plg: $customer\n")
         sb.append("--------------------------------\n")
 
         cart.forEach { (product, qty) ->
@@ -134,8 +141,6 @@ fun SalesScreen(
         }
         sb.append("Metode  : $method\n")
         sb.append("--------------------------------\n")
-
-        // Footer dari Settings
         if(storeProfile.footer.isNotEmpty()) sb.append("${storeProfile.footer}\n")
         else sb.append("Terima Kasih!\n")
 
@@ -152,7 +157,7 @@ fun SalesScreen(
             context.startActivity(intent)
         } catch (e: Exception) {
             try {
-                intent.setPackage("com.whatsapp.w4b") // WA Business
+                intent.setPackage("com.whatsapp.w4b")
                 context.startActivity(intent)
             } catch (e2: Exception) {
                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -184,10 +189,40 @@ fun SalesScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Kasir / Penjualan", fontSize = 24.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(16.dp))
+    // --- HELPER FORMAT INPUT UANG ---
+    fun formatInput(input: String): String {
+        val clean = input.replace("[^\\d]".toRegex(), "")
+        if (clean.isEmpty()) return ""
+        return try {
+            val number = clean.toLong()
+            NumberFormat.getInstance(Locale("id", "ID")).format(number)
+        } catch (e: Exception) { clean }
+    }
+    fun cleanInput(input: String): Double {
+        return input.replace(".", "").replace(",", "").toDoubleOrNull() ?: 0.0
+    }
 
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 16.dp, vertical = 8.dp) // Layout Compact
+    ) {
+        // --- BARIS 1: PELANGGAN (POJOK KANAN) ---
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            OutlinedButton(
+                onClick = { showCustomerDialog = true },
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Icon(Icons.Default.Person, null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(selectedCustomerName, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // --- BARIS 2: SCAN BARCODE ---
         Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = barcodeInput,
@@ -195,11 +230,16 @@ fun SalesScreen(
                 label = { Text("Scan Barcode...") },
                 modifier = Modifier.weight(1f).focusRequester(focusRequester),
                 singleLine = true,
+                shape = RoundedCornerShape(8.dp),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { processBarcode(barcodeInput) })
+                keyboardActions = KeyboardActions(onDone = { processBarcode(barcodeInput) }),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.White,
+                    unfocusedContainerColor = Color.White
+                )
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Button(
+            FilledTonalButton(
                 onClick = { cameraPermissionLauncher.launch(Manifest.permission.CAMERA) },
                 contentPadding = PaddingValues(0.dp),
                 modifier = Modifier.size(56.dp),
@@ -209,26 +249,73 @@ fun SalesScreen(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        OutlinedTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            label = { Text("Cari Nama Barang...") },
-            leadingIcon = { Icon(Icons.Default.Search, null) },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true
-        )
+        // --- BARIS 3: CARI & FILTER ---
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Cari Barang...") },
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                shape = RoundedCornerShape(8.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.White,
+                    unfocusedContainerColor = Color.White
+                )
+            )
+            Spacer(modifier = Modifier.width(8.dp))
 
-        Spacer(modifier = Modifier.height(16.dp))
+            // TOMBOL FILTER
+            val isFilterActive = selectedFilterCategory != "Semua" || selectedFilterUnit != "Semua"
+            FilledTonalButton(
+                onClick = { showFilterDialog = true },
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 16.dp),
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = if(isFilterActive) MaterialTheme.colorScheme.primary else Color(0xFFE0E0E0),
+                    contentColor = if(isFilterActive) Color.White else Color.Black
+                )
+            ) {
+                Icon(Icons.Default.FilterList, null)
+            }
+        }
 
-        LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(vertical = 8.dp)) {
+        // --- CHIP FILTER AKTIF ---
+        if (selectedFilterCategory != "Semua" || selectedFilterUnit != "Semua") {
+            Spacer(modifier = Modifier.height(8.dp))
+            Row {
+                if (selectedFilterCategory != "Semua") {
+                    AssistChip(
+                        onClick = { selectedFilterCategory = "Semua" },
+                        label = { Text(selectedFilterCategory) },
+                        trailingIcon = { Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp).clickable { selectedFilterCategory = "Semua" }) },
+                        colors = AssistChipDefaults.assistChipColors(containerColor = Color.White)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+                if (selectedFilterUnit != "Semua") {
+                    AssistChip(
+                        onClick = { selectedFilterUnit = "Semua" },
+                        label = { Text(selectedFilterUnit) },
+                        trailingIcon = { Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp).clickable { selectedFilterUnit = "Semua" }) },
+                        colors = AssistChipDefaults.assistChipColors(containerColor = Color.White)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // --- LIST BARANG ---
+        LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(vertical = 4.dp)) {
             items(filteredList) { product ->
                 val qtyInCart = cart[product] ?: 0
-                val displayQty = if(qtyInCart > 0) qtyInCart else 1
 
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { addToCart(product) },
                     elevation = CardDefaults.cardElevation(2.dp),
-                    colors = if (qtyInCart > 0) CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)) else CardDefaults.cardColors()
+                    colors = if (qtyInCart > 0) CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)) else CardDefaults.cardColors(containerColor = Color.White)
                 ) {
                     Row(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         if (product.imagePath != null) {
@@ -262,6 +349,7 @@ fun SalesScreen(
         HorizontalDivider()
         Spacer(modifier = Modifier.height(16.dp))
 
+        // --- FOOTER TOTAL & BAYAR ---
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column {
                 Text("Total Bayar:", fontSize = 14.sp, color = Color.Gray)
@@ -269,15 +357,100 @@ fun SalesScreen(
             }
             Button(
                 onClick = { if (cart.isNotEmpty()) showPaymentDialog = true else Toast.makeText(context, "Keranjang kosong!", Toast.LENGTH_SHORT).show() },
-                enabled = cart.isNotEmpty()
+                enabled = cart.isNotEmpty(),
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
             ) {
                 Icon(Icons.Default.ShoppingCart, null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("BAYAR")
+                Text("BAYAR", fontWeight = FontWeight.Bold)
             }
         }
     }
 
+    // --- DIALOG FILTER ---
+    if (showFilterDialog) {
+        AlertDialog(
+            onDismissRequest = { showFilterDialog = false },
+            title = { Text("Filter Barang") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text("Kategori:", fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.fillMaxWidth().clickable { selectedFilterCategory = "Semua" }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = selectedFilterCategory == "Semua", onClick = null)
+                        Text("Semua Kategori", modifier = Modifier.padding(start = 8.dp))
+                    }
+                    dbCategories.forEach { cat ->
+                        Row(modifier = Modifier.fillMaxWidth().clickable { selectedFilterCategory = cat.name }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = selectedFilterCategory == cat.name, onClick = null)
+                            Text(cat.name, modifier = Modifier.padding(start = 8.dp))
+                        }
+                    }
+                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    Text("Satuan:", fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.fillMaxWidth().clickable { selectedFilterUnit = "Semua" }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = selectedFilterUnit == "Semua", onClick = null)
+                        Text("Semua Satuan", modifier = Modifier.padding(start = 8.dp))
+                    }
+                    dbUnits.forEach { unit ->
+                        Row(modifier = Modifier.fillMaxWidth().clickable { selectedFilterUnit = unit.name }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = selectedFilterUnit == unit.name, onClick = null)
+                            Text(unit.name, modifier = Modifier.padding(start = 8.dp))
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showFilterDialog = false }) { Text("Tutup") } }
+        )
+    }
+
+    // --- DIALOG PILIH PELANGGAN (Update: Cari & No HP) ---
+    if (showCustomerDialog) {
+        var customerSearchQuery by remember { mutableStateOf("") }
+        val filteredCustomers = customers.filter {
+            it.name.contains(customerSearchQuery, ignoreCase = true) ||
+                    it.phoneNumber.contains(customerSearchQuery)
+        }
+
+        Dialog(onDismissRequest = { showCustomerDialog = false }) {
+            Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White), modifier = Modifier.fillMaxWidth().heightIn(max = 600.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Pilih Pelanggan", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = customerSearchQuery, onValueChange = { customerSearchQuery = it },
+                        label = { Text("Cari Nama / No. HP") }, leadingIcon = { Icon(Icons.Default.Search, null) },
+                        modifier = Modifier.fillMaxWidth(), singleLine = true
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Card(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { selectedCustomerName = "Umum"; showCustomerDialog = false },
+                        colors = if(selectedCustomerName == "Umum") CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer) else CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5))
+                    ) { Text("Umum (Non-Member)", modifier = Modifier.padding(16.dp), fontWeight = FontWeight.Bold) }
+
+                    LazyColumn(modifier = Modifier.weight(1f, fill = false)) {
+                        items(filteredCustomers) { customer ->
+                            Card(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { selectedCustomerName = customer.name; showCustomerDialog = false },
+                                colors = if(selectedCustomerName == customer.name) CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer) else CardDefaults.cardColors(containerColor = Color(0xFFF5F5F5))
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Text(customer.name, fontWeight = FontWeight.Bold)
+                                    if(customer.phoneNumber.isNotEmpty()) Text(customer.phoneNumber, fontSize = 12.sp, color = Color.Gray)
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(onClick = { showCustomerDialog = false }, modifier = Modifier.fillMaxWidth()) { Text("Tutup") }
+                }
+            }
+        }
+    }
+
+    // --- DIALOG PEMBAYARAN (Update: Auto Format Input) ---
     if (showPaymentDialog) {
         PaymentDialog(
             cart = cart,
@@ -287,13 +460,15 @@ fun SalesScreen(
                 viewModel.checkout(
                     cart = cart,
                     paymentMethod = method,
+                    customerName = selectedCustomerName,
                     onSuccess = {
                         lastTransactionChange = payAmount - totalPrice
                         lastTransactionPay = payAmount
                         lastCartBackup = cart
                         lastPaymentMethod = method
-
+                        lastCustomerName = selectedCustomerName
                         cart = emptyMap()
+                        selectedCustomerName = "Umum"
                         showPaymentDialog = false
                         showSuccessDialog = true
                     },
@@ -301,63 +476,28 @@ fun SalesScreen(
                 )
             },
             formatRupiah = { formatRupiah(it) },
-            getPrice = { p, q -> getProductPrice(p, q) }
+            getPrice = { p, q -> getProductPrice(p, q) },
+            onFormatInput = { formatInput(it) }, // Pass fungsi format
+            onCleanInput = { cleanInput(it) }    // Pass fungsi clean
         )
     }
 
     if (showSuccessDialog) {
         Dialog(onDismissRequest = { showSuccessDialog = false }) {
-            Card(
-                shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White),
-                modifier = Modifier.fillMaxWidth().padding(16.dp)
-            ) {
+            Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White), modifier = Modifier.fillMaxWidth().padding(16.dp)) {
                 Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF4CAF50), modifier = Modifier.size(64.dp))
                     Text("Transaksi Berhasil!", fontSize = 20.sp, fontWeight = FontWeight.Bold)
-
+                    Text("Pelanggan: $lastCustomerName", color = Color.Gray, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
                     if (lastPaymentMethod == "Tunai") {
                         Text("Kembalian:", color = Color.Gray)
                         Text(formatRupiah(lastTransactionChange), fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color(0xFF388E3C))
-                    } else {
-                        Text("Metode: $lastPaymentMethod", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.Blue)
-                    }
-
+                    } else { Text("Metode: $lastPaymentMethod", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = Color.Blue) }
                     Spacer(modifier = Modifier.height(24.dp))
-
-                    Button(
-                        onClick = {
-                            val totalStruk = lastCartBackup.entries.sumOf { getProductPrice(it.key, it.value) * it.value }
-                            val text = generateReceiptText(lastCartBackup, totalStruk, lastTransactionPay, lastTransactionChange, lastPaymentMethod)
-                            shareToWhatsApp(text)
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))
-                    ) {
-                        Icon(Icons.Default.Share, null, tint = Color.White)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Kirim Struk WhatsApp", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-
+                    Button(onClick = { val totalStruk = lastCartBackup.entries.sumOf { getProductPrice(it.key, it.value) * it.value }; val text = generateReceiptText(lastCartBackup, totalStruk, lastTransactionPay, lastTransactionChange, lastPaymentMethod, lastCustomerName); shareToWhatsApp(text) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))) { Icon(Icons.Default.Share, null, tint = Color.White); Spacer(modifier = Modifier.width(8.dp)); Text("Kirim Struk WhatsApp", color = Color.White, fontWeight = FontWeight.Bold) }
                     Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedButton(
-                        onClick = {
-                            val totalStruk = lastCartBackup.entries.sumOf { getProductPrice(it.key, it.value) * it.value }
-                            PrinterHelper.printReceipt(
-                                context = context,
-                                cart = lastCartBackup,
-                                totalPrice = totalStruk,
-                                payAmount = lastTransactionPay,
-                                change = lastTransactionChange,
-                                paymentMethod = lastPaymentMethod
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Print, null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Cetak Printer Thermal")
-                    }
+                    OutlinedButton(onClick = { val totalStruk = lastCartBackup.entries.sumOf { getProductPrice(it.key, it.value) * it.value }; PrinterHelper.printReceipt(context = context, cart = lastCartBackup, totalPrice = totalStruk, payAmount = lastTransactionPay, change = lastTransactionChange, paymentMethod = lastPaymentMethod) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Print, null); Spacer(modifier = Modifier.width(8.dp)); Text("Cetak Printer Thermal") }
                     Spacer(modifier = Modifier.height(8.dp))
                     TextButton(onClick = { showSuccessDialog = false }, modifier = Modifier.fillMaxWidth()) { Text("Tutup", color = Color.Gray) }
                 }
@@ -366,23 +506,9 @@ fun SalesScreen(
     }
 
     if (showScanner) {
-        Dialog(
-            onDismissRequest = { showScanner = false },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
+        Dialog(onDismissRequest = { showScanner = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
-                Box {
-                    BarcodeScannerView(
-                        onBarcodeDetected = { code ->
-                            showScanner = false
-                            processBarcode(code)
-                        }
-                    )
-                    IconButton(
-                        onClick = { showScanner = false },
-                        modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)
-                    ) { Icon(Icons.Default.Close, "Tutup", tint = Color.White) }
-                }
+                Box { BarcodeScannerView(onBarcodeDetected = { code -> showScanner = false; processBarcode(code) }); IconButton(onClick = { showScanner = false }, modifier = Modifier.align(Alignment.TopEnd).padding(16.dp)) { Icon(Icons.Default.Close, "Tutup", tint = Color.White) } }
             }
         }
     }
@@ -395,12 +521,14 @@ fun PaymentDialog(
     onDismiss: () -> Unit,
     onConfirm: (Double, String) -> Unit,
     formatRupiah: (Double) -> String,
-    getPrice: (Product, Int) -> Double
+    getPrice: (Product, Int) -> Double,
+    onFormatInput: (String) -> String,
+    onCleanInput: (String) -> Double
 ) {
     var paidAmountText by remember { mutableStateOf("") }
     var selectedMethod by remember { mutableStateOf("Tunai") }
 
-    val paidAmount = if (selectedMethod == "Tunai") paidAmountText.toDoubleOrNull() ?: 0.0 else totalPrice
+    val paidAmount = if (selectedMethod == "Tunai") onCleanInput(paidAmountText) else totalPrice
     val change = paidAmount - totalPrice
 
     AlertDialog(
@@ -413,57 +541,34 @@ fun PaymentDialog(
                 cart.forEach { (product, qty) ->
                     val finalPrice = getPrice(product, qty)
                     val isWholesaleActive = finalPrice < product.sellPrice
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text("${product.name} (x$qty)", fontSize = 14.sp)
-                            if (isWholesaleActive) {
-                                Text("Grosir Aktif!", fontSize = 10.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
-                            }
-                        }
+                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column { Text("${product.name} (x$qty)", fontSize = 14.sp); if (isWholesaleActive) Text("Grosir Aktif!", fontSize = 10.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold) }
                         Text(formatRupiah(finalPrice * qty), fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
                 }
                 HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
                 Text("Metode Pembayaran:", fontWeight = FontWeight.SemiBold)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Tunai", "QRIS", "Transfer").forEach { method ->
-                        FilterChip(
-                            selected = selectedMethod == method,
-                            onClick = { selectedMethod = method },
-                            label = { Text(method) }
-                        )
-                    }
+                    listOf("Tunai", "QRIS", "Transfer").forEach { method -> FilterChip(selected = selectedMethod == method, onClick = { selectedMethod = method }, label = { Text(method) }) }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Total Tagihan:", fontWeight = FontWeight.Bold)
-                    Text(formatRupiah(totalPrice), fontWeight = FontWeight.Bold, color = Color.Red)
-                }
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Total Tagihan:", fontWeight = FontWeight.Bold); Text(formatRupiah(totalPrice), fontWeight = FontWeight.Bold, color = Color.Red) }
                 Spacer(modifier = Modifier.height(16.dp))
                 if (selectedMethod == "Tunai") {
                     OutlinedTextField(
                         value = paidAmountText,
-                        onValueChange = { if (it.all { c -> c.isDigit() }) paidAmountText = it },
+                        onValueChange = { paidAmountText = onFormatInput(it) }, // Format Auto
                         label = { Text("Uang Tunai") },
                         prefix = { Text("Rp") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = if (change >= 0) "Kembalian: ${formatRupiah(change)}" else "Kurang: ${formatRupiah(kotlin.math.abs(change))}",
-                        color = if (change >= 0) Color(0xFF2E7D32) else Color.Red,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text(text = if (change >= 0) "Kembalian: ${formatRupiah(change)}" else "Kurang: ${formatRupiah(kotlin.math.abs(change))}", color = if (change >= 0) Color(0xFF2E7D32) else Color.Red, fontWeight = FontWeight.Bold)
                 }
             }
         },
-        confirmButton = {
-            Button(onClick = { onConfirm(paidAmount, selectedMethod) }, enabled = paidAmount >= totalPrice) { Text("SELESAI") }
-        },
+        confirmButton = { Button(onClick = { onConfirm(paidAmount, selectedMethod) }, enabled = paidAmount >= totalPrice) { Text("SELESAI") } },
         dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Batal") } }
     )
 }

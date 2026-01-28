@@ -80,6 +80,7 @@ class InventoryViewModel(
             withContext(Dispatchers.Main) { onResult(list.size) }
         }
     }
+    fun updateCustomer(customer: Customer) = viewModelScope.launch { customerDao.updateCustomer(customer) } // TAMBAHKAN INI
 
     private fun saveImageToInternalStorage(context: Context, uri: Uri?): String? {
         if (uri == null) return null

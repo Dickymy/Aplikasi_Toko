@@ -37,18 +37,17 @@ import coil.compose.rememberAsyncImagePainter
 import com.example.aplikasitokosembakoarkhan.data.Product
 import com.example.aplikasitokosembakoarkhan.utils.BarcodeScannerView
 import java.io.File
+import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProductScreen(
-    // Update: Gunakan InventoryViewModel & Factory
     viewModel: InventoryViewModel = viewModel(factory = AppViewModelProvider.Factory)
 ) {
     val context = LocalContext.current
 
-    // Data dari Database
     val products by viewModel.allProducts.collectAsState(initial = emptyList())
     val dbCategories by viewModel.allCategories.collectAsState(initial = emptyList())
     val dbUnits by viewModel.allUnits.collectAsState(initial = emptyList())
@@ -56,12 +55,13 @@ fun ProductScreen(
     // --- STATE PENCARIAN & FILTER ---
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilterCategory by remember { mutableStateOf("Semua") }
+    var selectedFilterUnit by remember { mutableStateOf("Semua") }
     var showFilterDialog by remember { mutableStateOf(false) }
 
-    // --- STATE FORM INPUT BARANG ---
+    // --- STATE FORM FORM ---
     var name by remember { mutableStateOf("") }
     var barcode by remember { mutableStateOf("") }
-    var sellPrice by remember { mutableStateOf("") }
+    var sellPrice by remember { mutableStateOf("") } // String untuk handle input user
     var buyPrice by remember { mutableStateOf("") }
     var stock by remember { mutableStateOf("") }
     var selectedUnit by remember { mutableStateOf("") }
@@ -84,7 +84,7 @@ fun ProductScreen(
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var productToDelete by remember { mutableStateOf<Product?>(null) }
 
-    // --- STATE INPUT CEPAT (QUICK ADD) ---
+    // --- STATE INPUT CEPAT ---
     var showQuickAddCategory by remember { mutableStateOf(false) }
     var newQuickCategoryName by remember { mutableStateOf("") }
     var showQuickAddUnit by remember { mutableStateOf(false) }
@@ -98,11 +98,30 @@ fun ProductScreen(
     var expandedUnit by remember { mutableStateOf(false) }
     var expandedCategory by remember { mutableStateOf(false) }
 
-    // --- LOGIKA FILTER UTAMA ---
     val filteredProducts = products.filter { product ->
         val matchSearch = product.name.contains(searchQuery, ignoreCase = true) || product.barcode.contains(searchQuery)
         val matchCategory = selectedFilterCategory == "Semua" || product.category == selectedFilterCategory
-        matchSearch && matchCategory
+        val matchUnit = selectedFilterUnit == "Semua" || product.unit == selectedFilterUnit
+        matchSearch && matchCategory && matchUnit
+    }
+
+    // --- HELPER FORMAT ANGKA (FITUR BARU) ---
+    fun formatInput(input: String): String {
+        // Hapus karakter selain angka
+        val clean = input.replace("[^\\d]".toRegex(), "")
+        if (clean.isEmpty()) return ""
+        return try {
+            val number = clean.toLong()
+            // Format ke Indonesia (pake titik)
+            NumberFormat.getInstance(Locale("id", "ID")).format(number)
+        } catch (e: Exception) {
+            clean // Jika error (misal terlalu panjang), kembalikan apa adanya
+        }
+    }
+
+    // Helper untuk membersihkan titik sebelum simpan ke DB
+    fun cleanInput(input: String): Double {
+        return input.replace(".", "").replace(",", "").toDoubleOrNull() ?: 0.0
     }
 
     fun getProductImageFile(path: String?): File? {
@@ -122,7 +141,6 @@ fun ProductScreen(
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(onClick = {
-                // Reset Form
                 name=""; barcode=""; sellPrice=""; buyPrice=""; stock=""
                 selectedUnit = if(dbUnits.isNotEmpty()) dbUnits[0].name else ""
                 selectedCategory = if(dbCategories.isNotEmpty()) dbCategories[0].name else ""
@@ -131,77 +149,143 @@ fun ProductScreen(
             }) { Icon(Icons.Default.Add, "Tambah") }
         }
     ) { padding ->
-        Column(modifier = Modifier.padding(padding).padding(16.dp)) {
-            // HEADER & FILTER
+        Column(
+            modifier = Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .padding(horizontal = 16.dp, vertical = 8.dp) // Layout Rapat ke Atas
+        ) {
+
+            // --- HEADER SEARCH & FILTER (TANPA CARD/SURFACE) ---
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    label = { Text("Cari Barang...") },
+                    placeholder = { Text("Cari Barang / Barcode...") },
                     modifier = Modifier.weight(1f),
-                    leadingIcon = { Icon(Icons.Default.Search, null) }
+                    leadingIcon = { Icon(Icons.Default.Search, null) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = Color.White,
+                        unfocusedContainerColor = Color.White,
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = Color.LightGray
+                    )
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                FilledTonalIconButton(onClick = { showFilterDialog = true }) {
-                    Icon(
-                        imageVector = if (selectedFilterCategory == "Semua") Icons.Default.FilterList else Icons.Default.FilterListOff,
-                        contentDescription = "Filter",
-                        tint = if (selectedFilterCategory == "Semua") MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
 
-            if (selectedFilterCategory != "Semua") {
-                Spacer(modifier = Modifier.height(8.dp))
-                AssistChip(
+                // Tombol Filter
+                val isFilterActive = selectedFilterCategory != "Semua" || selectedFilterUnit != "Semua"
+                FilledTonalButton(
                     onClick = { showFilterDialog = true },
-                    label = { Text("Kategori: $selectedFilterCategory") },
-                    trailingIcon = { Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp).clickable { selectedFilterCategory = "Semua" }) }
-                )
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 16.dp),
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = if(isFilterActive) MaterialTheme.colorScheme.primary else Color(0xFFE0E0E0),
+                        contentColor = if(isFilterActive) Color.White else Color.Black
+                    )
+                ) {
+                    Icon(Icons.Default.FilterList, null)
+                }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // LIST BARANG
-            LazyColumn {
-                items(filteredProducts) { product ->
-                    ProductItem(product,
-                        onRestock = { restockProduct = product; restockQty = ""; showRestockDialog = true },
-                        onEdit = {
-                            name=product.name; barcode=product.barcode; sellPrice=product.sellPrice.toInt().toString(); buyPrice=product.buyPrice.toInt().toString()
-                            stock=product.stock.toString(); selectedUnit=product.unit; selectedCategory=product.category
-                            isWholesale=product.wholesaleQty>0; wholesalePrice=product.wholesalePrice.toInt().toString(); wholesaleMinQty=product.wholesaleQty.toString()
-                            expireDate=if(product.expireDate>0) product.expireDate else null; currentProductId=product.id
-                            currentImagePath=product.imagePath; selectedImageUri=null; isEditing=true; showDialog=true
-                        },
-                        onDelete = { productToDelete = product; showDeleteConfirm = true },
-                        imageFile = getProductImageFile(product.imagePath)
-                    )
+            // Info Filter Aktif
+            if (selectedFilterCategory != "Semua" || selectedFilterUnit != "Semua") {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row {
+                    if (selectedFilterCategory != "Semua") {
+                        AssistChip(
+                            onClick = { selectedFilterCategory = "Semua" },
+                            label = { Text(selectedFilterCategory) },
+                            trailingIcon = { Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp).clickable { selectedFilterCategory = "Semua" }) },
+                            colors = AssistChipDefaults.assistChipColors(containerColor = Color.White)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+                    if (selectedFilterUnit != "Semua") {
+                        AssistChip(
+                            onClick = { selectedFilterUnit = "Semua" },
+                            label = { Text(selectedFilterUnit) },
+                            trailingIcon = { Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp).clickable { selectedFilterUnit = "Semua" }) },
+                            colors = AssistChipDefaults.assistChipColors(containerColor = Color.White)
+                        )
+                    }
                 }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // --- LIST BARANG ---
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
                 if (filteredProducts.isEmpty()) {
-                    item { Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { Text("Barang tidak ditemukan", color = Color.Gray) } }
+                    item {
+                        Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                            Text("Barang tidak ditemukan", color = Color.Gray)
+                        }
+                    }
+                } else {
+                    items(filteredProducts) { product ->
+                        ProductItem(product,
+                            onRestock = { restockProduct = product; restockQty = ""; showRestockDialog = true },
+                            onEdit = {
+                                name = product.name
+                                barcode = product.barcode
+                                // Format harga saat mode Edit
+                                sellPrice = formatInput(product.sellPrice.toInt().toString())
+                                buyPrice = formatInput(product.buyPrice.toInt().toString())
+                                stock = product.stock.toString()
+                                selectedUnit = product.unit
+                                selectedCategory = product.category
+                                isWholesale = product.wholesaleQty > 0
+                                wholesalePrice = formatInput(product.wholesalePrice.toInt().toString())
+                                wholesaleMinQty = product.wholesaleQty.toString()
+                                expireDate = if(product.expireDate > 0) product.expireDate else null
+                                currentProductId = product.id
+                                currentImagePath = product.imagePath
+                                selectedImageUri = null
+                                isEditing = true
+                                showDialog = true
+                            },
+                            onDelete = { productToDelete = product; showDeleteConfirm = true },
+                            imageFile = getProductImageFile(product.imagePath)
+                        )
+                    }
                 }
             }
         }
     }
 
-    // DIALOG FILTER
+    // --- DIALOG FILTER KATEGORI & SATUAN ---
     if (showFilterDialog) {
         AlertDialog(
             onDismissRequest = { showFilterDialog = false },
-            title = { Text("Filter Kategori") },
+            title = { Text("Filter Data Barang") },
             text = {
-                LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
-                    item {
-                        Row(modifier = Modifier.fillMaxWidth().clickable { selectedFilterCategory = "Semua"; showFilterDialog = false }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = selectedFilterCategory == "Semua", onClick = null)
-                            Text("Tampilkan Semua", modifier = Modifier.padding(start = 8.dp))
-                        }
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text("Kategori:", fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.fillMaxWidth().clickable { selectedFilterCategory = "Semua" }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = selectedFilterCategory == "Semua", onClick = null)
+                        Text("Semua Kategori", modifier = Modifier.padding(start = 8.dp))
                     }
-                    items(dbCategories) { cat ->
-                        Row(modifier = Modifier.fillMaxWidth().clickable { selectedFilterCategory = cat.name; showFilterDialog = false }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    dbCategories.forEach { cat ->
+                        Row(modifier = Modifier.fillMaxWidth().clickable { selectedFilterCategory = cat.name }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             RadioButton(selected = selectedFilterCategory == cat.name, onClick = null)
                             Text(cat.name, modifier = Modifier.padding(start = 8.dp))
+                        }
+                    }
+
+                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+
+                    Text("Satuan:", fontWeight = FontWeight.Bold)
+                    Row(modifier = Modifier.fillMaxWidth().clickable { selectedFilterUnit = "Semua" }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = selectedFilterUnit == "Semua", onClick = null)
+                        Text("Semua Satuan", modifier = Modifier.padding(start = 8.dp))
+                    }
+                    dbUnits.forEach { unit ->
+                        Row(modifier = Modifier.fillMaxWidth().clickable { selectedFilterUnit = unit.name }.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = selectedFilterUnit == unit.name, onClick = null)
+                            Text(unit.name, modifier = Modifier.padding(start = 8.dp))
                         }
                     }
                 }
@@ -210,7 +294,7 @@ fun ProductScreen(
         )
     }
 
-    // DIALOG INPUT BARANG
+    // --- DIALOG INPUT BARANG ---
     if (showDialog) {
         AlertDialog(onDismissRequest = { showDialog = false }, title = { Text(if (isEditing) "Edit Barang" else "Tambah Barang") }, text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
@@ -220,7 +304,7 @@ fun ProductScreen(
                     else Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.Image, null, tint = Color.Gray); Text("Tambah Gambar", fontSize = 12.sp, color = Color.Gray) }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(value = barcode, onValueChange = { barcode = it }, label = { Text("Barcode") }, trailingIcon = { IconButton(onClick = { cameraLauncher.launch(Manifest.permission.CAMERA) }) { Icon(Icons.Default.QrCodeScanner, null) } }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = barcode, onValueChange = { barcode = it }, label = { Text("Barcode (Unik)") }, trailingIcon = { IconButton(onClick = { cameraLauncher.launch(Manifest.permission.CAMERA) }) { Icon(Icons.Default.QrCodeScanner, null) } }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nama Barang") }, modifier = Modifier.fillMaxWidth())
 
                 Box(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
@@ -232,10 +316,23 @@ fun ProductScreen(
                     }
                 }
 
+                // HARGA (Auto Format)
                 Row {
-                    OutlinedTextField(value = sellPrice, onValueChange = { sellPrice = it }, label = { Text("Jual") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+                    OutlinedTextField(
+                        value = sellPrice,
+                        onValueChange = { sellPrice = formatInput(it) }, // Format saat ketik
+                        label = { Text("Jual") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
-                    OutlinedTextField(value = buyPrice, onValueChange = { buyPrice = it }, label = { Text("Modal") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+                    OutlinedTextField(
+                        value = buyPrice,
+                        onValueChange = { buyPrice = formatInput(it) }, // Format saat ketik
+                        label = { Text("Modal") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.weight(1f)
+                    )
                 }
 
                 Row {
@@ -253,27 +350,49 @@ fun ProductScreen(
                 OutlinedTextField(value = if (expireDate != null && expireDate!! > 0) SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(expireDate!!)) else "", onValueChange = {}, label = { Text("Expired (Opsional)") }, readOnly = true, trailingIcon = { IconButton(onClick = { showDatePicker() }) { Icon(Icons.Default.DateRange, null) } }, modifier = Modifier.fillMaxWidth().clickable { showDatePicker() })
 
                 Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = isWholesale, onCheckedChange = { isWholesale = it }); Text("Grosir") }
-                if (isWholesale) { Row { OutlinedTextField(value = wholesaleMinQty, onValueChange = { wholesaleMinQty = it }, label = { Text("Min Qty") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f)); Spacer(modifier = Modifier.width(8.dp)); OutlinedTextField(value = wholesalePrice, onValueChange = { wholesalePrice = it }, label = { Text("Harga Grosir") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f)) } }
+                if (isWholesale) {
+                    Row {
+                        OutlinedTextField(value = wholesaleMinQty, onValueChange = { wholesaleMinQty = it }, label = { Text("Min Qty") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f));
+                        Spacer(modifier = Modifier.width(8.dp));
+                        OutlinedTextField(
+                            value = wholesalePrice,
+                            onValueChange = { wholesalePrice = formatInput(it) }, // Format saat ketik
+                            label = { Text("Harga Grosir") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
             }
         }, confirmButton = {
             Button(onClick = {
                 if (name.isNotEmpty() && sellPrice.isNotEmpty()) {
-                    val p = Product(
-                        id = if (isEditing) currentProductId else 0,
-                        name = name,
-                        barcode = barcode,
-                        sellPrice = sellPrice.toDoubleOrNull()?:0.0,
-                        buyPrice = buyPrice.toDoubleOrNull()?:0.0,
-                        stock = stock.toIntOrNull()?:0,
-                        unit = if(selectedUnit.isEmpty()) "Pcs" else selectedUnit,
-                        category = if(selectedCategory.isEmpty()) "Umum" else selectedCategory,
-                        imagePath = currentImagePath,
-                        expireDate = expireDate?:0L,
-                        wholesaleQty = if(isWholesale) wholesaleMinQty.toIntOrNull()?:0 else 0,
-                        wholesalePrice = if(isWholesale) wholesalePrice.toDoubleOrNull()?:0.0 else 0.0
-                    )
-                    if (isEditing) viewModel.updateProductWithImage(p, selectedImageUri, context) else viewModel.insertProductWithImage(p, selectedImageUri, context)
-                    showDialog = false
+                    val isDuplicate = if (isEditing) {
+                        products.any { it.barcode == barcode && it.id != currentProductId && barcode.isNotEmpty() }
+                    } else {
+                        products.any { it.barcode == barcode && barcode.isNotEmpty() }
+                    }
+
+                    if (isDuplicate) {
+                        Toast.makeText(context, "Gagal: Barcode '$barcode' sudah digunakan!", Toast.LENGTH_LONG).show()
+                    } else {
+                        val p = Product(
+                            id = if (isEditing) currentProductId else 0,
+                            name = name,
+                            barcode = barcode,
+                            sellPrice = cleanInput(sellPrice), // Bersihkan titik sebelum simpan
+                            buyPrice = cleanInput(buyPrice), // Bersihkan titik sebelum simpan
+                            stock = stock.toIntOrNull()?:0,
+                            unit = if(selectedUnit.isEmpty()) "Pcs" else selectedUnit,
+                            category = if(selectedCategory.isEmpty()) "Umum" else selectedCategory,
+                            imagePath = currentImagePath,
+                            expireDate = expireDate?:0L,
+                            wholesaleQty = if(isWholesale) wholesaleMinQty.toIntOrNull()?:0 else 0,
+                            wholesalePrice = if(isWholesale) cleanInput(wholesalePrice) else 0.0 // Bersihkan titik
+                        )
+                        if (isEditing) viewModel.updateProductWithImage(p, selectedImageUri, context) else viewModel.insertProductWithImage(p, selectedImageUri, context)
+                        showDialog = false
+                    }
                 } else { Toast.makeText(context, "Nama dan Harga Jual wajib diisi", Toast.LENGTH_SHORT).show() }
             }) { Text("Simpan") }
         }, dismissButton = { TextButton(onClick = { showDialog = false }) { Text("Batal") } })
@@ -307,7 +426,6 @@ fun ProductScreen(
             Column { Text("Stok: ${restockProduct!!.stock} ${restockProduct!!.unit}"); OutlinedTextField(value = restockQty, onValueChange = { if(it.all { c -> c.isDigit() }) restockQty = it }, label = { Text("Tambah") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)) }
         }, confirmButton = {
             Button(onClick = {
-                // Gunakan updateProductWithImage dengan null URI untuk update simpel
                 val newStock = restockProduct!!.stock + (restockQty.toIntOrNull()?:0)
                 viewModel.updateProductWithImage(restockProduct!!.copy(stock = newStock), null, context)
                 showRestockDialog = false
@@ -322,7 +440,6 @@ fun ProductScreen(
             dismissButton = { TextButton(onClick = { showDeleteConfirm = false }) { Text("Batal") } })
     }
 
-    // DIALOG SCANNER
     if (showScanner) {
         Dialog(onDismissRequest = { showScanner = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
             Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
@@ -332,10 +449,10 @@ fun ProductScreen(
     }
 }
 
-// ProductItem component sama seperti sebelumnya
+// ProductItem Component
 @Composable
 fun ProductItem(product: Product, onRestock: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit, imageFile: File?) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), elevation = CardDefaults.cardElevation(2.dp)) {
+    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), elevation = CardDefaults.cardElevation(2.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                 if (imageFile != null) {
@@ -355,7 +472,9 @@ fun ProductItem(product: Product, onRestock: () -> Unit, onEdit: () -> Unit, onD
                         Text("Exp: ${SimpleDateFormat("dd/MM/yy", Locale.getDefault()).format(Date(product.expireDate))}", style = MaterialTheme.typography.labelSmall, color = Color.Red)
                     }
                 }
-                Text("Rp ${String.format("%,.0f", product.sellPrice)}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
+                // Tampilkan harga dengan format
+                val formattedPrice = NumberFormat.getInstance(Locale("id", "ID")).format(product.sellPrice)
+                Text("Rp $formattedPrice", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
             }
             Divider(modifier = Modifier.padding(vertical = 8.dp))
             Row(horizontalArrangement = Arrangement.End) {
