@@ -1,10 +1,16 @@
 package com.example.aplikasitokosembakoarkhan
 
 import android.app.Application
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.content.Context
 import android.net.Uri
+import android.widget.Toast
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.aplikasitokosembakoarkhan.data.Product
 import com.example.aplikasitokosembakoarkhan.data.repository.BackupRepository
+import com.example.aplikasitokosembakoarkhan.utils.PrinterHelper
 import com.example.aplikasitokosembakoarkhan.utils.SecurityHelper
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,31 +33,63 @@ class SettingsViewModel(
     private val _lockedMenus = MutableStateFlow(prefs.lockedMenus)
     val lockedMenus = _lockedMenus.asStateFlow()
 
+    // State Printer Terpilih
+    private val _selectedPrinter = MutableStateFlow(prefs.printerAddress)
+    val selectedPrinter = _selectedPrinter.asStateFlow()
+
     fun saveStoreProfile(name: String, address: String, phone: String, footer: String) {
         prefs.storeName = name; prefs.storeAddress = address; prefs.storePhone = phone; prefs.receiptFooter = footer
         _storeProfile.value = StoreProfile(name, address, phone, footer)
     }
 
+    // --- LOGIKA PRINTER ---
+
+    fun savePrinter(address: String) {
+        prefs.printerAddress = address
+        _selectedPrinter.value = address
+    }
+
+    fun getPairedDevices(): List<BluetoothDevice> {
+        val adapter = BluetoothAdapter.getDefaultAdapter()
+        return try {
+            if (adapter != null && adapter.isEnabled) {
+                adapter.bondedDevices.toList()
+            } else {
+                emptyList()
+            }
+        } catch (e: SecurityException) {
+            emptyList()
+        }
+    }
+
+    fun testPrint(context: Context) {
+        // Data Dummy untuk Tes (PERBAIKAN: Menambahkan barcode="")
+        val dummyCart = mapOf(
+            Product(name = "Tes Barang 1", barcode = "001", sellPrice = 10000.0, stock = 10, buyPrice = 5000.0, category = "Umum", unit = "Pcs") to 1,
+            Product(name = "Tes Barang 2", barcode = "002", sellPrice = 5000.0, stock = 10, buyPrice = 2500.0, category = "Umum", unit = "Pcs") to 2
+        )
+
+        PrinterHelper.printReceipt(
+            context = context,
+            cart = dummyCart,
+            totalPrice = 20000.0,
+            payAmount = 50000.0,
+            change = 30000.0,
+            paymentMethod = "Tunai (Tes)"
+        )
+    }
+
+    // --- KEAMANAN ---
     fun isPinSet(): Boolean = SecurityHelper.isPinSet(app)
     fun setPin(newPin: String) = SecurityHelper.setPin(app, newPin)
     fun removePin() = SecurityHelper.removePin(app)
 
-    // --- PERBAIKAN: TOGGLE MENU LOCK ---
-    fun toggleMenuLock(route: String, isLocked: Boolean) {
-        // Buat Set BARU (Penting agar StateFlow mendeteksi perubahan)
-        val currentSet = _lockedMenus.value.toMutableSet()
-
-        if (isLocked) {
-            currentSet.add(route)
-        } else {
-            currentSet.remove(route)
-        }
-
-        // Simpan ke Preferences & Update State
-        prefs.lockedMenus = currentSet.toSet()
-        _lockedMenus.value = currentSet.toSet()
+    fun updateLockedMenus(newSet: Set<String>) {
+        prefs.lockedMenus = newSet
+        _lockedMenus.value = newSet
     }
 
+    // --- BACKUP RESTORE ---
     fun backupData(uri: Uri, onSuccess: ()->Unit, onError: (String)->Unit) = viewModelScope.launch {
         val res = backupRepository.backupData(uri)
         if(res.isSuccess) onSuccess() else onError(res.exceptionOrNull()?.message ?: "Error")
@@ -59,11 +97,5 @@ class SettingsViewModel(
     fun restoreData(uri: Uri, onSuccess: ()->Unit, onError: (String)->Unit) = viewModelScope.launch {
         val res = backupRepository.restoreData(uri)
         if(res.isSuccess) onSuccess() else onError(res.exceptionOrNull()?.message ?: "Error")
-    }
-    fun updateLockedMenus(newSet: Set<String>) {
-        // Simpan ke SharedPreferences
-        prefs.lockedMenus = newSet
-        // Update StateFlow agar MainActivity langsung mendeteksi perubahan
-        _lockedMenus.value = newSet
     }
 }

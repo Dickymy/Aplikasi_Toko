@@ -1,8 +1,11 @@
 package com.example.aplikasitokosembakoarkhan
 
+import android.Manifest
+import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
+import android.content.pm.PackageManager
+import android.os.Build
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -31,8 +34,9 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.ActivityCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
-import kotlin.system.exitProcess
+import com.example.aplikasitokosembakoarkhan.utils.SecurityHelper
 
 @Composable
 fun SettingsScreen(
@@ -47,6 +51,7 @@ fun SettingsScreen(
     when (currentSection) {
         "menu" -> SettingsMenuContent(onNavigate = { section -> currentSection = section })
         "receipt" -> ReceiptSettingsContent(viewModel) { currentSection = "menu" }
+        "printer" -> PrinterSettingsContent(viewModel) { currentSection = "menu" } // HALAMAN BARU
         "backup" -> BackupSettingsContent(viewModel) { currentSection = "menu" }
         "security" -> SecuritySettingsContent(viewModel) { currentSection = "menu" }
         "about" -> AboutSectionContent(onBack = { currentSection = "menu" })
@@ -69,6 +74,7 @@ fun SettingsMenuContent(onNavigate: (String) -> Unit) {
         Text("Pengaturan", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(24.dp))
 
+        SettingsItemRow("Koneksi Printer", "Sambungkan printer thermal bluetooth", Icons.Default.Print) { onNavigate("printer") } // MENU BARU
         SettingsItemRow("Identitas Toko & Struk", "Atur nama toko, alamat, dan footer", Icons.AutoMirrored.Filled.ReceiptLong) { onNavigate("receipt") }
         SettingsItemRow("Backup & Restore", "Amankan data database & gambar", Icons.Default.Backup) { onNavigate("backup") }
         SettingsItemRow("Keamanan (PIN)", "Atur kunci & menu yang dilindungi", Icons.Default.Lock) { onNavigate("security") }
@@ -90,6 +96,134 @@ fun SettingsItemRow(title: String, subtitle: String, icon: ImageVector, onClick:
     }
 }
 
+// --- HALAMAN PENGATURAN PRINTER (BARU) ---
+@Composable
+fun PrinterSettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val currentPrinter by viewModel.selectedPrinter.collectAsState()
+    var pairedDevices by remember { mutableStateOf<List<BluetoothDevice>>(emptyList()) }
+    var hasPermission by remember { mutableStateOf(false) }
+
+    // Launcher Izin Bluetooth
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions.entries.all { it.value }
+        hasPermission = granted
+        if (granted) {
+            pairedDevices = viewModel.getPairedDevices()
+        } else {
+            Toast.makeText(context, "Izin Bluetooth Diperlukan", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        // Cek Izin saat dibuka
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                hasPermission = true
+                pairedDevices = viewModel.getPairedDevices()
+            } else {
+                permissionLauncher.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN))
+            }
+        } else {
+            hasPermission = true
+            pairedDevices = viewModel.getPairedDevices()
+        }
+    }
+
+    Scaffold(topBar = { SettingsHeader("Koneksi Printer", onBack) }) { p ->
+        Column(modifier = Modifier.padding(p).padding(16.dp)) {
+
+            // Info Header
+            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)), modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Cara Menghubungkan:", fontWeight = FontWeight.Bold)
+                    Text("1. Hidupkan Printer Thermal Bluetooth.", fontSize = 12.sp)
+                    Text("2. Buka Pengaturan Bluetooth HP -> Pasangkan (Pair) dengan Printer.", fontSize = 12.sp)
+                    Text("3. Kembali ke sini, lalu pilih nama printer dari daftar di bawah.", fontSize = 12.sp)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (!hasPermission) {
+                Button(onClick = {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        permissionLauncher.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN))
+                    }
+                }) { Text("Izinkan Akses Bluetooth") }
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                    Text("Perangkat Terpasang:", fontWeight = FontWeight.Bold)
+                    IconButton(onClick = { pairedDevices = viewModel.getPairedDevices(); Toast.makeText(context, "Daftar disegarkan", Toast.LENGTH_SHORT).show() }) {
+                        Icon(Icons.Default.Refresh, "Refresh")
+                    }
+                }
+
+                LazyColumn {
+                    if (pairedDevices.isEmpty()) {
+                        item { Text("Tidak ada perangkat bluetooth yang terpasang.", color = Color.Gray, modifier = Modifier.padding(top = 8.dp)) }
+                    } else {
+                        items(pairedDevices) { device ->
+                            val isSelected = device.address == currentPrinter
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clickable {
+                                        viewModel.savePrinter(device.address)
+                                        Toast.makeText(context, "Printer Dipilih: ${device.name}", Toast.LENGTH_SHORT).show()
+                                    },
+                                colors = CardDefaults.cardColors(containerColor = if(isSelected) Color(0xFFC8E6C9) else Color.White),
+                                border = if(isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Print, null, tint = if(isSelected) Color(0xFF2E7D32) else Color.Gray)
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    Column {
+                                        // PENTING: Permission check sebelum akses .name
+                                        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                                            Text(device.name ?: "Unknown Device", fontWeight = FontWeight.Bold)
+                                            Text(device.address, fontSize = 12.sp, color = Color.Gray)
+                                        } else {
+                                            Text("Perangkat (Izin Ditolak)")
+                                        }
+                                    }
+                                    if (isSelected) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                        Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2E7D32))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // TOMBOL TEST PRINT
+                Button(
+                    onClick = { viewModel.testPrint(context) },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = currentPrinter.isNotEmpty(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
+                ) {
+                    Icon(Icons.Default.Print, null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Tes Cetak Struk")
+                }
+            }
+        }
+    }
+}
+
+// --- BAGIAN LAIN TETAP SAMA (SECURITY, RECEIPT, DLL) ---
+// (Pastikan Anda tetap menyertakan fungsi SecuritySettingsContent, ReceiptSettingsContent, dll yang ada di file sebelumnya)
+
 @Composable
 fun SecuritySettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
     var isPinSet by remember { mutableStateOf(viewModel.isPinSet()) }
@@ -98,14 +232,12 @@ fun SecuritySettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val originalLockedMenus by viewModel.lockedMenus.collectAsState()
     val tempLockedMenus = remember { mutableStateListOf<String>() }
 
-    // State Dialog
-    var showRestartDialog by remember { mutableStateOf(false) } // Untuk "Simpan & Terapkan" menu
-    var showPinCreateDialog by remember { mutableStateOf(false) } // Untuk "Buat PIN Baru"
-    var showPinDeleteDialog by remember { mutableStateOf(false) } // Untuk "Hapus PIN"
+    var showRestartDialog by remember { mutableStateOf(false) }
+    var showPinCreateDialog by remember { mutableStateOf(false) }
+    var showPinDeleteDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
 
-    // Init data awal
     LaunchedEffect(originalLockedMenus) {
         tempLockedMenus.clear()
         tempLockedMenus.addAll(originalLockedMenus)
@@ -133,7 +265,6 @@ fun SecuritySettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
         LazyColumn(modifier = Modifier.padding(p).padding(16.dp)) {
             item {
                 if (isPinSet) {
-                    // --- TAMPILAN JIKA PIN SUDAH AKTIF ---
                     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)), modifier = Modifier.fillMaxWidth()) {
                         Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2E7D32))
@@ -143,9 +274,7 @@ fun SecuritySettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
-                        onClick = {
-                            showPinDeleteDialog = true // Tampilkan dialog konfirmasi hapus
-                        },
+                        onClick = { showPinDeleteDialog = true },
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Red), modifier = Modifier.fillMaxWidth()
                     ) { Text("Hapus PIN") }
 
@@ -155,7 +284,6 @@ fun SecuritySettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     Text("Centang menu, lalu tekan tombol Simpan di bawah.", fontSize = 12.sp, color = Color.Gray)
                     Spacer(modifier = Modifier.height(8.dp))
                 } else {
-                    // --- TAMPILAN JIKA BELUM ADA PIN ---
                     Text("Pasang PIN Baru (6 Digit):")
                     OutlinedTextField(
                         value = pinInput, onValueChange = { if (it.length <= 6 && it.all { c -> c.isDigit() }) pinInput = it },
@@ -164,42 +292,22 @@ fun SecuritySettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
-                        onClick = {
-                            if (pinInput.length >= 4) {
-                                showPinCreateDialog = true // Tampilkan alert konfirmasi buat PIN
-                            } else {
-                                Toast.makeText(context, "Minimal 4 digit", Toast.LENGTH_SHORT).show()
-                            }
-                        },
+                        onClick = { if (pinInput.length >= 4) showPinCreateDialog = true else Toast.makeText(context, "Minimal 4 digit", Toast.LENGTH_SHORT).show() },
                         modifier = Modifier.fillMaxWidth(), enabled = pinInput.length >= 4
                     ) { Text("Simpan PIN") }
                 }
             }
 
-            // LIST CHECKBOX MENU (Hanya muncul jika PIN aktif)
             if (isPinSet) {
                 items(menuOptions) { (route, name) ->
                     val isMandatory = route == "settings"
                     val isChecked = if (isMandatory) true else tempLockedMenus.contains(route)
 
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled = !isMandatory) {
-                                if (isChecked) tempLockedMenus.remove(route) else tempLockedMenus.add(route)
-                            }
-                            .padding(vertical = 4.dp),
+                        modifier = Modifier.fillMaxWidth().clickable(enabled = !isMandatory) { if (isChecked) tempLockedMenus.remove(route) else tempLockedMenus.add(route) }.padding(vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Checkbox(
-                            checked = isChecked,
-                            onCheckedChange = { checked ->
-                                if (!isMandatory) {
-                                    if (checked) tempLockedMenus.add(route) else tempLockedMenus.remove(route)
-                                }
-                            },
-                            enabled = !isMandatory
-                        )
+                        Checkbox(checked = isChecked, onCheckedChange = { checked -> if (!isMandatory) { if (checked) tempLockedMenus.add(route) else tempLockedMenus.remove(route) } }, enabled = !isMandatory)
                         Column {
                             Text(name, fontWeight = if(isMandatory) FontWeight.Bold else FontWeight.Normal)
                             if (isMandatory) Text("(Wajib dikunci)", fontSize = 10.sp, color = Color.Gray)
@@ -213,15 +321,13 @@ fun SecuritySettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
                         onClick = {
                             val finalSet = tempLockedMenus.toSet() + "settings"
                             viewModel.updateLockedMenus(finalSet)
-                            showRestartDialog = true // Alert Simpan Menu
+                            showRestartDialog = true
                         },
                         modifier = Modifier.fillMaxWidth().height(50.dp),
                         shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                     ) {
-                        Icon(Icons.Default.Save, null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("SIMPAN & TERAPKAN", fontWeight = FontWeight.Bold)
+                        Icon(Icons.Default.Save, null); Spacer(modifier = Modifier.width(8.dp)); Text("SIMPAN & TERAPKAN", fontWeight = FontWeight.Bold)
                     }
                     Spacer(modifier = Modifier.height(32.dp))
                 }
@@ -229,61 +335,32 @@ fun SecuritySettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
         }
     }
 
-    // --- ALERT 1: Konfirmasi Simpan & Restart (Menu Lock) ---
     if (showRestartDialog) {
         AlertDialog(
             onDismissRequest = { },
             title = { Text("Pengaturan Disimpan") },
             text = { Text("Aplikasi akan dimuat ulang untuk menerapkan perubahan keamanan.\n\nKlik OK untuk melanjutkan.") },
-            confirmButton = {
-                Button(
-                    onClick = { restartApp(context) },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
-                ) { Text("OK, Restart Sekarang") }
-            },
-            dismissButton = null
+            confirmButton = { Button(onClick = { restartApp(context) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))) { Text("OK, Restart Sekarang") } }
         )
     }
 
-    // --- ALERT 2: Konfirmasi Buat PIN Baru ---
     if (showPinCreateDialog) {
         AlertDialog(
             onDismissRequest = { showPinCreateDialog = false },
             title = { Text("Aktifkan Keamanan PIN?") },
             text = { Text("Setelah PIN aktif, Anda dapat mengunci halaman penting.\n\nAplikasi akan di-restart untuk mengaktifkan sistem keamanan ini.") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.setPin(pinInput)
-                        restartApp(context)
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
-                ) { Text("Ya, Simpan & Restart") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPinCreateDialog = false }) { Text("Batal") }
-            }
+            confirmButton = { Button(onClick = { viewModel.setPin(pinInput); restartApp(context) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))) { Text("Ya, Simpan & Restart") } },
+            dismissButton = { TextButton(onClick = { showPinCreateDialog = false }) { Text("Batal") } }
         )
     }
 
-    // --- ALERT 3: Konfirmasi Hapus PIN ---
     if (showPinDeleteDialog) {
         AlertDialog(
             onDismissRequest = { showPinDeleteDialog = false },
             title = { Text("Hapus PIN Keamanan?") },
             text = { Text("PERINGATAN: Menghapus PIN akan membuka semua kunci halaman.\n\nAplikasi akan di-restart setelah PIN dihapus.") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.removePin()
-                        restartApp(context)
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
-                ) { Text("Ya, Hapus & Restart") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPinDeleteDialog = false }) { Text("Batal") }
-            }
+            confirmButton = { Button(onClick = { viewModel.removePin(); restartApp(context) }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("Ya, Hapus & Restart") } },
+            dismissButton = { TextButton(onClick = { showPinDeleteDialog = false }) { Text("Batal") } }
         )
     }
 }
