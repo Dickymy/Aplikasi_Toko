@@ -3,56 +3,60 @@ package com.example.aplikasitokosembakoarkhan
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.aplikasitokosembakoarkhan.data.*
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class SalesViewModel(
     private val productDao: ProductDao,
-    private val saleDao: SaleDao
+    private val transactionDao: TransactionDao
 ) : ViewModel() {
 
     val allProducts = productDao.getAllProducts()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     fun checkout(
-        cart: Map<Product, Int>,
+        cart: Map<Product, Double>,
         paymentMethod: String,
-        customerName: String, // Parameter Baru
+        customerName: String,
         onSuccess: () -> Unit,
         onError: (String) -> Unit
     ) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch {
             try {
-                val timestamp = System.currentTimeMillis()
+                var totalAmount = 0.0
+                val itemsSummary = StringBuilder()
+
                 cart.forEach { (product, qty) ->
-                    // Kurangi stok
-                    productDao.updateProduct(product.copy(stock = product.stock - qty))
+                    if (product.stock < qty) {
+                        onError("Stok ${product.name} kurang!")
+                        return@launch
+                    }
 
-                    // Hitung harga final
-                    val finalSellPrice = if (product.wholesaleQty > 0 && qty >= product.wholesaleQty && product.wholesalePrice > 0)
+                    val price = if (product.wholesaleQty > 0 && qty >= product.wholesaleQty) {
                         product.wholesalePrice
-                    else
+                    } else {
                         product.sellPrice
+                    }
 
-                    // Simpan Transaksi dengan Nama Pelanggan
-                    saleDao.insertSale(
-                        Sale(
-                            productId = product.id,
-                            productName = product.name,
-                            quantity = qty,
-                            capitalPrice = product.buyPrice * qty,
-                            totalPrice = finalSellPrice * qty,
-                            date = timestamp,
-                            customerName = customerName // Simpan di sini
-                        )
-                    )
+                    totalAmount += price * qty
+                    itemsSummary.append("${product.name} x$qty, ")
+
+                    val newStock = product.stock - qty
+                    productDao.updateProduct(product.copy(stock = newStock))
                 }
-                withContext(Dispatchers.Main) { onSuccess() }
+
+                val transaction = Transaction(
+                    date = System.currentTimeMillis(),
+                    totalAmount = totalAmount,
+                    items = itemsSummary.toString(),
+                    paymentMethod = paymentMethod,
+                    customerName = customerName
+                )
+                transactionDao.insertTransaction(transaction)
+                onSuccess()
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) { onError(e.message ?: "Gagal Transaksi") }
+                onError("Gagal: ${e.message}")
             }
         }
     }

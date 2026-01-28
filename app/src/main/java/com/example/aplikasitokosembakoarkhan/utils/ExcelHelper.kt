@@ -24,7 +24,7 @@ object ExcelHelper {
                     val name = row.getCell(1)?.stringCellValue ?: ""
                     val buyPrice = row.getCell(2)?.numericCellValue ?: 0.0
                     val sellPrice = row.getCell(3)?.numericCellValue ?: 0.0
-                    val stock = row.getCell(4)?.numericCellValue?.toInt() ?: 0
+                    val stock = row.getCell(4)?.numericCellValue ?: 0.0
                     val unit = row.getCell(5)?.stringCellValue ?: "pcs"
                     val barcode = try {
                         row.getCell(6)?.stringCellValue ?: ""

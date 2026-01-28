@@ -63,10 +63,31 @@ class SettingsViewModel(
     }
 
     fun testPrint(context: Context) {
-        // Data Dummy untuk Tes (PERBAIKAN: Menambahkan barcode="")
+        // PERBAIKAN: Stok & Qty menggunakan Double (10.0, 1.0) bukan Int (10, 1)
         val dummyCart = mapOf(
-            Product(name = "Tes Barang 1", barcode = "001", sellPrice = 10000.0, stock = 10, buyPrice = 5000.0, category = "Umum", unit = "Pcs") to 1,
-            Product(name = "Tes Barang 2", barcode = "002", sellPrice = 5000.0, stock = 10, buyPrice = 2500.0, category = "Umum", unit = "Pcs") to 2
+            Product(
+                name = "Tes Barang 1",
+                barcode = "TEST001",
+                sellPrice = 10000.0,
+                stock = 10.0,
+                buyPrice = 5000.0,
+                category = "Umum",
+                unit = "Pcs",
+                wholesaleQty = 0.0,
+                wholesalePrice = 0.0
+            ) to 1.0, // <-- Double
+
+            Product(
+                name = "Tes Barang 2",
+                barcode = "TEST002",
+                sellPrice = 5000.0,
+                stock = 10.0,
+                buyPrice = 2500.0,
+                category = "Umum",
+                unit = "Pcs",
+                wholesaleQty = 0.0,
+                wholesalePrice = 0.0
+            ) to 2.0 // <-- Double
         )
 
         PrinterHelper.printReceipt(

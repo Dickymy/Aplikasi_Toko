@@ -4,34 +4,41 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import com.example.aplikasitokosembakoarkhan.data.repository.BackupRepository
+import com.example.aplikasitokosembakoarkhan.InventoryApplication
 
 object AppViewModelProvider {
     val Factory = viewModelFactory {
-        // 1. InventoryViewModel
         initializer {
-            val db = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as TokoApplication).database
-            // Tambahkan db.debtTransactionDao() di akhir
-            InventoryViewModel(db.productDao(), db.categoryDao(), db.unitDao(), db.customerDao(), db.debtTransactionDao())
+            InventoryViewModel(
+                inventoryApplication().container.productDao,
+                inventoryApplication().container.categoryDao,
+                inventoryApplication().container.unitDao,
+                inventoryApplication().container.customerDao,
+                inventoryApplication().container.debtTransactionDao
+            )
+        }
+        initializer {
+            SalesViewModel(
+                inventoryApplication().container.productDao,
+                inventoryApplication().container.transactionDao
+            )
+        }
+        initializer {
+            SettingsViewModel(
+                inventoryApplication(),
+                inventoryApplication().container.backupRepository
+            )
         }
 
-        // 2. SalesViewModel
+        // FIX: ReportViewModel sekarang minta TransactionDao DAN ExpenseDao
         initializer {
-            val db = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as TokoApplication).database
-            SalesViewModel(db.productDao(), db.saleDao())
-        }
-
-        // 3. ReportViewModel
-        initializer {
-            val db = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as TokoApplication).database
-            ReportViewModel(db.saleDao(), db.expenseDao())
-        }
-
-        // 4. SettingsViewModel (UPDATE: Tambah Application Context)
-        initializer {
-            val app = (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as TokoApplication)
-            val repo = BackupRepository(app)
-            SettingsViewModel(app, repo) // Pass 'app' di sini
+            ReportViewModel(
+                inventoryApplication().container.transactionDao,
+                inventoryApplication().container.expenseDao
+            )
         }
     }
 }
+
+fun CreationExtras.inventoryApplication(): InventoryApplication =
+    (this[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY] as InventoryApplication)

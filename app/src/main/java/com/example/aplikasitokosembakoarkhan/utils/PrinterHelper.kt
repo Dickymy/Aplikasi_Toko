@@ -25,7 +25,7 @@ object PrinterHelper {
     @SuppressLint("MissingPermission")
     fun printReceipt(
         context: Context,
-        cart: Map<Product, Int>,
+        cart: Map<Product, Double>, // <-- UBAH KE DOUBLE
         totalPrice: Double,
         payAmount: Double,
         change: Double,
@@ -47,28 +47,24 @@ object PrinterHelper {
         }
 
         val adapter = BluetoothAdapter.getDefaultAdapter()
-        if (adapter == null) {
-            Toast.makeText(context, "Bluetooth tidak didukung", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        if (!adapter.isEnabled) {
-            Toast.makeText(context, "Bluetooth belum aktif!", Toast.LENGTH_SHORT).show()
+        if (adapter == null || !adapter.isEnabled) {
+            Toast.makeText(context, "Bluetooth error", Toast.LENGTH_SHORT).show()
             return
         }
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val device = adapter.getRemoteDevice(printerAddress)
-
-                if (device == null) {
-                    throw Exception("Printer tidak ditemukan")
-                }
-
                 val connection = BluetoothConnection(device)
                 val printer = EscPosPrinter(connection, 203, 48f, 32)
 
                 fun formatRupiah(amount: Double) = NumberFormat.getCurrencyInstance(Locale("id", "ID")).format(amount).replace("Rp", "Rp ").replace(",00", "")
+
+                // Helper format qty (jika bulat tampil bulat, jika desimal tampil koma)
+                fun formatQty(qty: Double): String {
+                    return if (qty % 1.0 == 0.0) qty.toInt().toString() else qty.toString()
+                }
+
                 val dateFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("id", "ID"))
                 val dateNow = dateFormat.format(Date())
 
@@ -84,7 +80,8 @@ object PrinterHelper {
                 cart.forEach { (product, qty) ->
                     val totalItemPrice = product.sellPrice * qty
                     text += "[L]<b>${product.name}</b>\n"
-                    text += "[L]  $qty x ${formatRupiah(product.sellPrice)}[R]${formatRupiah(totalItemPrice)}\n"
+                    // Tampilkan Qty desimal
+                    text += "[L]  ${formatQty(qty)} x ${formatRupiah(product.sellPrice)}[R]${formatRupiah(totalItemPrice)}\n"
                 }
 
                 text += "[C]--------------------------------\n"
@@ -102,15 +99,11 @@ object PrinterHelper {
 
                 printer.printFormattedText(text)
 
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Struk Berhasil Dicetak", Toast.LENGTH_SHORT).show()
-                }
+                withContext(Dispatchers.Main) { Toast.makeText(context, "Struk Dicetak", Toast.LENGTH_SHORT).show() }
 
             } catch (e: Exception) {
                 e.printStackTrace()
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Gagal Cetak: ${e.message}", Toast.LENGTH_LONG).show()
-                }
+                withContext(Dispatchers.Main) { Toast.makeText(context, "Gagal Cetak: ${e.message}", Toast.LENGTH_LONG).show() }
             }
         }
     }
