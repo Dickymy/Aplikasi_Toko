@@ -3,11 +3,14 @@ package com.example.aplikasitokosembakoarkhan
 import android.app.DatePickerDialog
 import android.content.Intent
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -15,12 +18,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
@@ -47,6 +52,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
+// --- VIEW MODEL ---
 class ReportViewModel(
     private val transactionDao: TransactionDao,
     private val expenseDao: ExpenseDao
@@ -58,6 +64,12 @@ class ReportViewModel(
     val allExpenses = expenseDao.getAllExpenses()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 }
+
+// --- COLOR PALETTE ---
+val PrimaryBlue = Color(0xFF1565C0)
+val IncomeColor = Color(0xFF2E7D32)
+val ExpenseColor = Color(0xFFC62828)
+val BackgroundColor = Color(0xFFF3F4F6)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -72,14 +84,19 @@ fun ReportScreen(
     val storeProfile by settingsViewModel.storeProfile.collectAsState()
     val context = LocalContext.current
 
-    var searchQuery by remember { mutableStateOf("") }
-    var showFilterDialog by remember { mutableStateOf(false) }
+    // --- STATES ---
+    var showDateDialog by remember { mutableStateOf(false) }
     var startDate by remember { mutableStateOf<Long?>(null) }
     var endDate by remember { mutableStateOf<Long?>(null) }
+
+    var selectedPaymentFilter by remember { mutableStateOf("Semua") }
+    val paymentOptions = listOf("Semua", "Tunai", "Transfer", "QRIS")
+    var sortOption by remember { mutableStateOf("Terbaru") }
 
     var showDetailDialog by remember { mutableStateOf(false) }
     var selectedTransaction by remember { mutableStateOf<Transaction?>(null) }
 
+    // --- HELPERS ---
     fun formatRupiah(amount: Double): String {
         return NumberFormat.getCurrencyInstance(Locale("id", "ID")).format(amount).replace("Rp", "Rp ").replace(",00", "")
     }
@@ -88,23 +105,27 @@ fun ReportScreen(
         return if (qty % 1.0 == 0.0) qty.toInt().toString() else qty.toString()
     }
 
-    val filteredTransactions = remember(transactions, searchQuery, startDate, endDate) {
-        transactions.filter { trans ->
-            val matchSearch = trans.customerName.contains(searchQuery, ignoreCase = true) || trans.items.contains(searchQuery, ignoreCase = true)
-            val matchDate = (startDate == null || trans.date >= startDate!!) &&
-                    (endDate == null || trans.date <= (endDate!! + 86400000L))
-            matchSearch && matchDate
+    // --- FILTER & SORT LOGIC ---
+    val filteredTransactions = remember(transactions, selectedPaymentFilter, startDate, endDate, sortOption) {
+        var result = transactions
+        if (startDate != null) result = result.filter { it.date >= startDate!! }
+        if (endDate != null) result = result.filter { it.date <= (endDate!! + 86400000L) }
+
+        if (selectedPaymentFilter != "Semua") {
+            if (selectedPaymentFilter == "Non-Tunai") result = result.filter { !it.paymentMethod.equals("Tunai", ignoreCase = true) }
+            else result = result.filter { it.paymentMethod.equals(selectedPaymentFilter, ignoreCase = true) }
         }
+
+        if (sortOption == "Terbaru") result.sortedByDescending { it.date } else result.sortedByDescending { it.totalAmount }
     }
 
     val filteredExpenses = remember(expenses, startDate, endDate) {
-        expenses.filter { exp ->
-            (startDate == null || exp.date >= startDate!!) &&
-                    (endDate == null || exp.date <= (endDate!! + 86400000L))
-        }
+        expenses.filter { exp -> (startDate == null || exp.date >= startDate!!) && (endDate == null || exp.date <= (endDate!! + 86400000L)) }
     }
 
     val totalOmzet = filteredTransactions.sumOf { it.totalAmount }
+    val totalPengeluaran = filteredExpenses.sumOf { it.amount }
+
     val totalModalEstimasi = remember(filteredTransactions, productList) {
         var modal = 0.0
         filteredTransactions.forEach { trans ->
@@ -123,70 +144,42 @@ fun ReportScreen(
         }
         modal
     }
-    val totalPengeluaran = filteredExpenses.sumOf { it.amount }
-    val labaKotor = totalOmzet - totalModalEstimasi
-    val labaBersih = labaKotor - totalPengeluaran
+    val labaBersih = totalOmzet - totalModalEstimasi - totalPengeluaran
 
-    val topProducts = remember(filteredTransactions) {
-        val countMap = mutableMapOf<String, Double>()
-        filteredTransactions.forEach { trans ->
-            val items = trans.items.split(", ")
-            items.forEach { itemStr ->
-                try {
-                    val lastX = itemStr.lastIndexOf(" x")
-                    if (lastX != -1) {
-                        val name = itemStr.substring(0, lastX).trim()
-                        val qty = itemStr.substring(lastX + 2).toDoubleOrNull() ?: 0.0
-                        countMap[name] = (countMap[name] ?: 0.0) + qty
-                    }
-                } catch (e: Exception) {}
+    // --- LAUNCHER EXPORT CSV (FIXED) ---
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/csv") // MIME Type CSV
+    ) { uri ->
+        if (uri != null && filteredTransactions.isNotEmpty()) {
+            inventoryViewModel.exportTransactionsToCsv(context, uri, filteredTransactions) { msg ->
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
             }
+        } else if (filteredTransactions.isEmpty()) {
+            Toast.makeText(context, "Tidak ada data untuk diexport", Toast.LENGTH_SHORT).show()
         }
-        countMap.toList().sortedByDescending { it.second }.take(5)
     }
 
-    // --- STRUK WA ---
-    fun generateReceiptText(trans: Transaction): String {
+    fun shareToWhatsApp(trans: Transaction) {
         val sb = StringBuilder()
-        val date = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale("id", "ID")).format(Date(trans.date))
-        sb.append("*${storeProfile.name.uppercase()}*\n")
-        sb.append("Tgl: $date\n")
-        sb.append("Plg: ${trans.customerName}\n")
-        sb.append("--------------------------------\n")
-
+        sb.append("*${storeProfile.name}*\n")
+        sb.append("Tgl: ${SimpleDateFormat("dd MMM yyyy, HH:mm").format(Date(trans.date))}\n")
+        sb.append("Plg: ${trans.customerName}\n----------------\n")
         trans.items.split(", ").forEach { itemStr ->
-            if(itemStr.isNotBlank()) {
+            if (itemStr.isNotBlank()) {
                 try {
                     val lastX = itemStr.lastIndexOf(" x")
                     if (lastX != -1) {
                         val name = itemStr.substring(0, lastX).trim()
                         val qtyVal = itemStr.substring(lastX + 2).toDoubleOrNull() ?: 0.0
-
                         val product = productList.find { it.name.equals(name, ignoreCase = true) }
-                        val unit = product?.unit ?: ""
-                        val desc = product?.description ?: ""
-
-                        sb.append("$name x ${formatQty(qtyVal)} $unit\n")
-                        if (desc.isNotEmpty()) {
-                            sb.append("($desc)\n")
-                        }
-                    } else {
-                        sb.append("$itemStr\n")
-                    }
-                } catch (e: Exception) {
-                    sb.append("$itemStr\n")
-                }
+                        sb.append("$name x ${formatQty(qtyVal)} ${product?.unit ?: ""}\n")
+                    } else sb.append("$itemStr\n")
+                } catch (e: Exception) { sb.append("$itemStr\n") }
             }
         }
-
-        sb.append("--------------------------------\n")
-        sb.append("Total: ${formatRupiah(trans.totalAmount)}\n")
-        return sb.toString()
-    }
-
-    fun shareToWhatsApp(trans: Transaction) {
-        val intent = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, generateReceiptText(trans)); setPackage("com.whatsapp") }
-        try { context.startActivity(intent) } catch (e: Exception) { Toast.makeText(context, "WhatsApp error", Toast.LENGTH_SHORT).show() }
+        sb.append("----------------\nTotal: ${formatRupiah(trans.totalAmount)}\n")
+        val intent = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, sb.toString()); setPackage("com.whatsapp") }
+        try { context.startActivity(intent) } catch (e: Exception) { Toast.makeText(context, "WA Error", Toast.LENGTH_SHORT).show() }
     }
 
     fun printTransaction(trans: Transaction) {
@@ -207,406 +200,321 @@ fun ReportScreen(
     }
 
     Scaffold(
+        containerColor = BackgroundColor,
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = { Toast.makeText(context, "Export Excel Segera Hadir", Toast.LENGTH_SHORT).show() },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White
-            ) { Icon(Icons.Default.Download, null) }
+            ExtendedFloatingActionButton(
+                onClick = {
+                    if (filteredTransactions.isNotEmpty()) {
+                        // Membuat Nama File yang Cantik
+                        val dateFormat = SimpleDateFormat("ddMMMyy", Locale.getDefault())
+                        val startStr = if (startDate != null) dateFormat.format(Date(startDate!!)) else "Semua"
+                        val endStr = if (endDate != null) dateFormat.format(Date(endDate!!)) else "Data"
+
+                        // Contoh: Laporan_01Jan25_sd_31Jan25.csv
+                        val fileName = "Laporan_${startStr}_sd_${endStr}.csv"
+
+                        // Buka Dialog Simpan
+                        exportLauncher.launch(fileName)
+                    } else {
+                        Toast.makeText(context, "Tidak ada data yang ditampilkan untuk diexport", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                containerColor = Color(0xFF1B5E20),
+                contentColor = Color.White,
+                icon = { Icon(Icons.Default.FileDownload, null) },
+                text = { Text("Export Excel") }
+            )
         }
     ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .background(Color(0xFFF8F9FA))
-        ) {
-            // --- HEADER SEARCH & FILTER ---
-            Column(modifier = Modifier.background(Color.White).padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = searchQuery, onValueChange = { searchQuery = it },
-                        placeholder = { Text("Cari Transaksi...") },
-                        leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.Gray) },
-                        modifier = Modifier.weight(1f),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Color(0xFFFAFAFA),
-                            unfocusedContainerColor = Color(0xFFFAFAFA),
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = Color.LightGray
-                        )
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
+        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
 
-                    FilledTonalIconButton(
-                        onClick = { showFilterDialog = true },
-                        modifier = Modifier.size(56.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = IconButtonDefaults.filledTonalIconButtonColors(
-                            containerColor = if(startDate != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = if(startDate != null) Color.White else MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    ) { Icon(Icons.Default.DateRange, null) }
-                }
-
-                if (startDate != null) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.padding(top = 12.dp)
+            // HEADER CONTROL PANEL
+            Surface(color = Color.White, shadowElevation = 2.dp, shape = RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp)) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    // Row 1: Filter Tanggal
+                    Card(
+                        modifier = Modifier.fillMaxWidth().clickable { showDateDialog = true },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F7FA)),
+                        border = BorderStroke(1.dp, Color(0xFFE0E0E0))
                     ) {
-                        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.CalendarToday, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                text = "Periode: ${SimpleDateFormat("dd MMM").format(Date(startDate!!))} - ${if(endDate!=null) SimpleDateFormat("dd MMM").format(Date(endDate!!)) else "Hari ini"}",
-                                fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp).clickable { startDate=null; endDate=null }, tint = MaterialTheme.colorScheme.primary)
+                        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+                            Icon(Icons.Default.DateRange, null, tint = PrimaryBlue); Spacer(Modifier.width(10.dp))
+                            Column {
+                                Text("Periode Laporan", fontSize = 10.sp, color = Color.Gray)
+                                Text(
+                                    text = if (startDate != null) "${SimpleDateFormat("dd MMM").format(Date(startDate!!))} - ${if (endDate != null) SimpleDateFormat("dd MMM yyyy").format(Date(endDate!!)) else "Hari Ini"}" else "Semua Waktu",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = Color.Black
+                                )
+                            }
+                            Spacer(Modifier.weight(1f)); Icon(Icons.Default.ArrowDropDown, null, tint = Color.Gray)
                         }
                     }
-                }
-            }
-
-            LazyColumn(
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-
-                // --- SECTION 1: RINGKASAN KEUANGAN (TENGAH & RAPI) ---
-                item {
-                    Text(
-                        text = "RINGKASAN",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.Gray,
-                        modifier = Modifier.fillMaxWidth(),
-                        textAlign = TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        SummaryCard(title = "Total Omzet", amount = totalOmzet, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
-                        SummaryCard(title = "Total Pengeluaran", amount = totalPengeluaran, color = Color(0xFFD32F2F), modifier = Modifier.weight(1f))
-                    }
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    Card(
+                    // Row 2: Filter Pembayaran (PERBAIKAN FILTER CHIP)
+                    Text("Metode Pembayaran:", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if(labaBersih >= 0) Color(0xFF388E3C) else Color(0xFFC62828)
-                        ),
-                        elevation = CardDefaults.cardElevation(6.dp),
-                        shape = RoundedCornerShape(16.dp)
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(
-                            modifier = Modifier.padding(20.dp).fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Text(
-                                text = "ESTIMASI LABA BERSIH",
-                                color = Color.White.copy(alpha = 0.8f),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.5.sp,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = formatRupiah(labaBersih),
-                                color = Color.White,
-                                fontSize = 30.sp,
-                                fontWeight = FontWeight.Black,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            Surface(
-                                color = Color.White.copy(alpha = 0.15f),
-                                shape = RoundedCornerShape(50),
-                            ) {
-                                Text(
-                                    text = "Omzet - Modal - Operasional",
-                                    color = Color.White,
-                                    fontSize = 10.sp,
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
-                                    textAlign = TextAlign.Center
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                            items(paymentOptions) { method ->
+                                FilterChip(
+                                    selected = selectedPaymentFilter == method,
+                                    onClick = { selectedPaymentFilter = method },
+                                    label = { Text(method, fontSize = 12.sp) },
+                                    enabled = true,
+                                    leadingIcon = if (selectedPaymentFilter == method) { { Icon(Icons.Default.Check, null, modifier = Modifier.size(14.dp)) } } else null,
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = PrimaryBlue.copy(alpha = 0.15f),
+                                        selectedLabelColor = PrimaryBlue,
+                                        selectedLeadingIconColor = PrimaryBlue
+                                    ),
+                                    border = FilterChipDefaults.filterChipBorder(borderColor = if(selectedPaymentFilter == method) PrimaryBlue else Color.LightGray, enabled = true, selected = selectedPaymentFilter == method)
                                 )
                             }
                         }
+                        // Sort Button
+                        IconButton(onClick = { sortOption = if(sortOption == "Terbaru") "Tertinggi" else "Terbaru" }) {
+                            Icon(if(sortOption == "Terbaru") Icons.Default.AccessTime else Icons.Default.AttachMoney, null, tint = PrimaryBlue)
+                        }
                     }
                 }
+            }
 
-                // --- SECTION 2: PRODUK TERLARIS ---
-                if (topProducts.isNotEmpty()) {
-                    item {
-                        Text("PRODUK TERLARIS", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.Gray)
-                        Spacer(modifier = Modifier.height(8.dp))
+            LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
 
-                        Card(colors = CardDefaults.cardColors(containerColor = Color.White), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, Color(0xFFF0F0F0))) {
-                            Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                                topProducts.forEachIndexed { index, (name, qty) ->
-                                    val product = productList.find { it.name.equals(name, ignoreCase = true) }
-                                    val unit = product?.unit ?: ""
-
-                                    Row(
-                                        Modifier.fillMaxWidth().padding(vertical = 10.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Box(modifier = Modifier.size(28.dp).clip(CircleShape).background(if(index==0) Color(0xFFFFC107) else Color(0xFFF5F5F5)), contentAlignment = Alignment.Center) {
-                                                Text("${index + 1}", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if(index==0) Color.White else Color.Black)
-                                            }
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Text(name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                        }
-                                        Text("${formatQty(qty)} $unit", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                    }
-                                    if(index < topProducts.size - 1) HorizontalDivider(color = Color(0xFFEEEEEE))
-                                }
-                            }
+                // Section: Ringkasan Pecah
+                item {
+                    Text("Ringkasan Keuangan", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.Gray)
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        MiniSummaryCard("Pemasukan", totalOmzet, IncomeColor, Icons.Default.ArrowUpward, Modifier.weight(1f))
+                        MiniSummaryCard("Modal", totalModalEstimasi, Color(0xFF607D8B), Icons.Default.Inventory, Modifier.weight(1f))
+                        MiniSummaryCard("Biaya", totalPengeluaran, ExpenseColor, Icons.Default.MoneyOff, Modifier.weight(1f))
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    // Laba Bersih Besar
+                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = if(labaBersih >= 0) IncomeColor else ExpenseColor), elevation = CardDefaults.cardElevation(4.dp)) {
+                        Column(Modifier.padding(16.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("LABA BERSIH", fontSize = 12.sp, color = Color.White.copy(0.8f), fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                            Text(formatRupiah(labaBersih), fontSize = 26.sp, fontWeight = FontWeight.Black, color = Color.White)
                         }
                     }
                 }
 
-                // --- SECTION 3: RIWAYAT TRANSAKSI ---
+                // Section: List Transaksi
                 item {
-                    Text("RIWAYAT TRANSAKSI (${filteredTransactions.size})", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.Gray)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
+                        Text("Riwayat Transaksi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.Gray)
+                        Text("${filteredTransactions.size} Data", fontSize = 12.sp, color = Color.Gray)
+                    }
                 }
 
                 if (filteredTransactions.isEmpty()) {
-                    item {
-                        Box(modifier = Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.History, null, modifier = Modifier.size(48.dp), tint = Color.LightGray)
-                                Spacer(Modifier.height(8.dp))
-                                Text("Tidak ada data transaksi", color = Color.Gray)
-                            }
-                        }
-                    }
+                    item { Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { Text("Tidak ada transaksi", color = Color.Gray) } }
                 } else {
                     items(filteredTransactions) { trans ->
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 2.dp)
-                                .clickable { selectedTransaction = trans; showDetailDialog = true },
-                            colors = CardDefaults.cardColors(containerColor = Color.White),
-                            elevation = CardDefaults.cardElevation(1.dp),
-                            shape = RoundedCornerShape(12.dp),
-                            border = BorderStroke(1.dp, Color(0xFFF0F0F0))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(16.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Box(
-                                    modifier = Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)).background(Color(0xFFE3F2FD)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(Icons.Default.ReceiptLong, null, tint = MaterialTheme.colorScheme.primary)
-                                }
-
-                                Spacer(modifier = Modifier.width(16.dp))
-
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(trans.customerName, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                    Text(SimpleDateFormat("dd MMM • HH:mm", Locale("id")).format(Date(trans.date)), fontSize = 12.sp, color = Color.Gray)
-                                    Surface(color = Color(0xFFF5F5F5), shape = RoundedCornerShape(4.dp), modifier = Modifier.padding(top=4.dp)) {
-                                        Text(trans.paymentMethod, fontSize = 10.sp, color = Color.DarkGray, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
-                                    }
-                                }
-
-                                Column(horizontalAlignment = Alignment.End) {
-                                    Text(formatRupiah(trans.totalAmount), fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Icon(Icons.Default.ChevronRight, null, tint = Color.LightGray, modifier = Modifier.size(20.dp))
-                                }
-                            }
-                        }
+                        TransactionItemNew(trans, onClick = { selectedTransaction = trans; showDetailDialog = true })
                     }
                 }
             }
         }
     }
 
-    // --- DIALOG DETAIL TRANSAKSI ---
+    // --- DIALOG FILTER TANGGAL DENGAN SHORTCUT ---
+    if (showDateDialog) {
+        val cal = Calendar.getInstance()
+
+        fun setRange(daysAgo: Int) {
+            val end = Calendar.getInstance()
+            end.set(Calendar.HOUR_OF_DAY, 23); end.set(Calendar.MINUTE, 59)
+            val start = Calendar.getInstance()
+            start.add(Calendar.DAY_OF_YEAR, -daysAgo)
+            start.set(Calendar.HOUR_OF_DAY, 0); start.set(Calendar.MINUTE, 0)
+
+            startDate = start.timeInMillis
+            endDate = end.timeInMillis
+            showDateDialog = false
+        }
+
+        fun setThisMonth() {
+            val start = Calendar.getInstance()
+            start.set(Calendar.DAY_OF_MONTH, 1)
+            start.set(Calendar.HOUR_OF_DAY, 0); start.set(Calendar.MINUTE, 0)
+
+            val end = Calendar.getInstance() // Hari ini sebagai akhir
+            end.set(Calendar.HOUR_OF_DAY, 23); end.set(Calendar.MINUTE, 59)
+
+            startDate = start.timeInMillis
+            endDate = end.timeInMillis
+            showDateDialog = false
+        }
+
+        AlertDialog(
+            onDismissRequest = { showDateDialog = false },
+            title = { Text("Filter Periode") },
+            text = {
+                Column {
+                    Text("Pilih Cepat:", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SuggestionChip(onClick = { setRange(0) }, label = { Text("Hari Ini") }, modifier = Modifier.weight(1f))
+                        SuggestionChip(onClick = { setRange(6) }, label = { Text("7 Hari") }, modifier = Modifier.weight(1f))
+                        SuggestionChip(onClick = { setThisMonth() }, label = { Text("Bulan Ini") }, modifier = Modifier.weight(1f))
+                    }
+
+                    Divider(Modifier.padding(vertical = 12.dp))
+                    Text("Custom Tanggal:", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(8.dp))
+
+                    OutlinedButton(onClick = { DatePickerDialog(context, { _, y, m, d -> val c = Calendar.getInstance(); c.set(y, m, d, 0, 0, 0); startDate = c.timeInMillis }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show() }, modifier = Modifier.fillMaxWidth()) { Text(if(startDate!=null) "Mulai: ${SimpleDateFormat("dd/MM/yy").format(Date(startDate!!))}" else "Pilih Tanggal Mulai") }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onClick = { DatePickerDialog(context, { _, y, m, d -> val c = Calendar.getInstance(); c.set(y, m, d, 23, 59, 59); endDate = c.timeInMillis }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show() }, modifier = Modifier.fillMaxWidth()) { Text(if(endDate!=null) "Sampai: ${SimpleDateFormat("dd/MM/yy").format(Date(endDate!!))}" else "Pilih Tanggal Selesai") }
+                }
+            },
+            confirmButton = { Button(onClick = { showDateDialog = false }) { Text("Tutup") } },
+            dismissButton = { TextButton(onClick = { startDate = null; endDate = null; showDateDialog = false }) { Text("Reset") } }
+        )
+    }
+
+    // --- DIALOG DETAIL ---
     if (showDetailDialog && selectedTransaction != null) {
         val trans = selectedTransaction!!
         Dialog(onDismissRequest = { showDetailDialog = false }) {
-            Card(
-                modifier = Modifier.fillMaxWidth().heightIn(max = 700.dp),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White)
-            ) {
-                Column(modifier = Modifier.padding(20.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column {
-                            Text("Detail Transaksi", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                            Text(SimpleDateFormat("dd MMM yyyy • HH:mm", Locale("id")).format(Date(trans.date)), fontSize = 12.sp, color = Color.Gray)
-                        }
-                        Spacer(modifier = Modifier.weight(1f))
-                        IconButton(onClick = { showDetailDialog = false }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.Close, null)
+            Card(modifier = Modifier.fillMaxWidth().heightIn(max = 700.dp), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                Column(modifier = Modifier.padding(24.dp)) {
+                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.size(50.dp).background(PrimaryBlue.copy(0.1f), CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Receipt, null, tint = PrimaryBlue, modifier = Modifier.size(28.dp)) }
+                        Spacer(Modifier.height(12.dp))
+                        Text(formatRupiah(trans.totalAmount), fontSize = 24.sp, fontWeight = FontWeight.Black, color = PrimaryBlue)
+                        Text("Total Transaksi", fontSize = 12.sp, color = Color.Gray)
+                    }
+                    Spacer(Modifier.height(20.dp)); Divider(color = Color(0xFFEEEEEE)); Spacer(Modifier.height(16.dp))
+
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Waktu", color = Color.Gray, fontSize = 12.sp); Text(SimpleDateFormat("dd MMM, HH:mm").format(Date(trans.date)), fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                    Spacer(Modifier.height(8.dp))
+
+                    // CARD INFO PELANGGAN
+                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Person, null, tint = PrimaryBlue, modifier = Modifier.size(20.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Column {
+                                Text("Pelanggan", fontSize = 10.sp, color = Color.Gray)
+                                Text(trans.customerName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                            Spacer(Modifier.weight(1f))
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("Metode", fontSize = 10.sp, color = Color.Gray)
+                                Text(trans.paymentMethod, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if(trans.paymentMethod=="Tunai") IncomeColor else Color(0xFFE65100))
+                            }
                         }
                     }
 
-                    HorizontalDivider(Modifier.padding(vertical = 16.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth().background(Color(0xFFFAFAFA), RoundedCornerShape(8.dp)).padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(modifier = Modifier.size(36.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text("Pelanggan", fontSize = 10.sp, color = Color.Gray)
-                            Text(trans.customerName, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Item Belanja", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(Modifier.height(16.dp))
+                    Text("Detail Item", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                    Spacer(Modifier.height(8.dp))
 
                     Column(modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
-                        val itemsList = trans.items.split(", ")
-                        itemsList.forEach { itemStr ->
+                        val items = trans.items.split(", ")
+                        items.forEach { itemStr ->
                             if (itemStr.isNotBlank()) {
-                                var itemName = itemStr
-                                var itemQty = ""
-                                var itemUnit = ""
-                                var itemDesc = ""
+                                var name = itemStr
+                                var qty = ""
                                 try {
                                     val lastX = itemStr.lastIndexOf(" x")
-                                    if (lastX != -1) {
-                                        itemName = itemStr.substring(0, lastX).trim()
+                                    if(lastX != -1) {
+                                        name = itemStr.substring(0, lastX).trim()
                                         val rawQty = itemStr.substring(lastX + 2).toDoubleOrNull() ?: 0.0
-                                        itemQty = formatQty(rawQty)
+                                        qty = formatQty(rawQty)
                                     }
-                                } catch (e: Exception) {}
+                                } catch(e: Exception){}
 
-                                val prod = productList.find { it.name.equals(itemName, ignoreCase = true) }
-                                itemUnit = prod?.unit ?: ""
-                                itemDesc = prod?.description ?: ""
+                                val product = productList.find { it.name.equals(name, ignoreCase = true) }
+                                val desc = product?.description ?: ""
+                                val unit = product?.unit ?: ""
+                                // Variabel category dipindahkan ke sini
+                                val category = product?.category ?: "-"
 
-                                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                                    if (prod?.imagePath != null) {
-                                        AsyncImage(model = File(prod.imagePath), contentDescription = null, modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)).background(Color.LightGray), contentScale = ContentScale.Crop)
+                                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    if (product?.imagePath != null) {
+                                        AsyncImage(model = File(product.imagePath), null, Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
                                     } else {
-                                        Box(modifier = Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xFFF0F0F0)), contentAlignment = Alignment.Center) {
-                                            Icon(Icons.Default.ShoppingBag, null, tint = Color.Gray, modifier = Modifier.size(24.dp))
-                                        }
+                                        Box(Modifier.size(40.dp).background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.ShoppingBag, null, tint = Color.LightGray) }
                                     }
-
-                                    Spacer(modifier = Modifier.width(12.dp))
-
-                                    Column {
-                                        Text(itemName, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                        if (itemDesc.isNotEmpty()) {
-                                            Text(itemDesc, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontStyle = FontStyle.Italic)
-                                        }
-                                        Text("Jumlah: $itemQty $itemUnit", fontSize = 12.sp, color = Color.Gray)
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                        if (desc.isNotEmpty()) Text(desc, fontSize = 11.sp, color = Color.Gray, fontStyle = FontStyle.Italic)
+                                        Text("$category • $unit", fontSize = 10.sp, color = PrimaryBlue)
+                                    }
+                                    if(qty.isNotEmpty()) {
+                                        Text("x$qty", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                     }
                                 }
-                                HorizontalDivider(color = Color(0xFFF0F0F0))
+                                Divider(color = Color(0xFFF5F5F5))
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFFAFAFA)), modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp)) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Metode Bayar", color = Color.Gray)
-                                Text(trans.paymentMethod, fontWeight = FontWeight.Bold)
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Total Transaksi", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                                Text(formatRupiah(trans.totalAmount), fontWeight = FontWeight.Black, fontSize = 18.sp, color = MaterialTheme.colorScheme.primary)
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedButton(onClick = { printTransaction(trans) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
-                            Icon(Icons.Default.Print, null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Cetak")
-                        }
-                        Button(onClick = { shareToWhatsApp(trans) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))) {
-                            Icon(Icons.Default.Share, null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Text("WA")
-                        }
+                    Spacer(Modifier.height(16.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { printTransaction(trans) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) { Icon(Icons.Default.Print, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Cetak") }
+                        Button(onClick = { shareToWhatsApp(trans) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))) { Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("WA") }
                     }
                 }
             }
         }
     }
+}
 
-    if (showFilterDialog) {
-        val cal = Calendar.getInstance()
-        AlertDialog(
-            onDismissRequest = { showFilterDialog = false },
-            title = { Text("Filter Periode", fontWeight = FontWeight.Bold) },
-            text = {
-                Column {
-                    OutlinedButton(onClick = { DatePickerDialog(context, { _, y, m, d -> val c = Calendar.getInstance(); c.set(y, m, d, 0, 0, 0); startDate = c.timeInMillis }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show() }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
-                        Icon(Icons.Default.DateRange, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(if(startDate!=null) "Mulai: ${SimpleDateFormat("dd MMM yyyy").format(Date(startDate!!))}" else "Tanggal Mulai")
-                    }
-                    Spacer(modifier = Modifier.height(12.dp))
-                    OutlinedButton(onClick = { DatePickerDialog(context, { _, y, m, d -> val c = Calendar.getInstance(); c.set(y, m, d, 23, 59, 59); endDate = c.timeInMillis }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show() }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(8.dp)) {
-                        Icon(Icons.Default.DateRange, null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(if(endDate!=null) "Sampai: ${SimpleDateFormat("dd MMM yyyy").format(Date(endDate!!))}" else "Tanggal Selesai")
-                    }
-                }
-            },
-            confirmButton = { Button(onClick = { showFilterDialog = false }) { Text("Terapkan") } },
-            dismissButton = { TextButton(onClick = { startDate = null; endDate = null; showFilterDialog = false }) { Text("Reset", color = Color.Red) } }
-        )
+// --- NEW COMPONENTS ---
+
+@Composable
+fun MiniSummaryCard(title: String, amount: Double, color: Color, icon: ImageVector, modifier: Modifier) {
+    Card(modifier = modifier, colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(2.dp), shape = RoundedCornerShape(12.dp)) {
+        Column(Modifier.padding(12.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.background(color.copy(0.1f), CircleShape).padding(6.dp)) { Icon(icon, null, tint = color, modifier = Modifier.size(18.dp)) }
+            Spacer(Modifier.height(8.dp))
+            Text(title, fontSize = 11.sp, color = Color.Gray)
+            Text(NumberFormat.getCurrencyInstance(Locale("id", "ID")).format(amount).replace(",00", ""), fontWeight = FontWeight.Bold, fontSize = 13.sp, color = color, textAlign = TextAlign.Center)
+        }
     }
 }
 
 @Composable
-fun SummaryCard(title: String, amount: Double, color: Color, modifier: Modifier = Modifier) {
+fun TransactionItemNew(trans: Transaction, onClick: () -> Unit) {
     Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(2.dp),
+        modifier = Modifier.fillMaxWidth().clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, Color(0xFFF0F0F0))
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(0.dp),
+        border = BorderStroke(1.dp, Color(0xFFE0E0E0))
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp).fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(text = title, fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = NumberFormat.getCurrencyInstance(Locale("id", "ID")).format(amount).replace("Rp", "Rp ").replace(",00", ""),
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-                color = color,
-                textAlign = TextAlign.Center
-            )
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(40.dp).clip(CircleShape).background(if(trans.paymentMethod=="Tunai") Color(0xFFE8F5E9) else Color(0xFFE3F2FD)), contentAlignment = Alignment.Center) {
+                Text(trans.customerName.take(1).uppercase(), fontWeight = FontWeight.Bold, color = if(trans.paymentMethod=="Tunai") Color(0xFF2E7D32) else PrimaryBlue)
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(trans.customerName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text(SimpleDateFormat("dd MMM • HH:mm").format(Date(trans.date)), fontSize = 11.sp, color = Color.Gray)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(NumberFormat.getCurrencyInstance(Locale("id", "ID")).format(trans.totalAmount).replace(",00", ""), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = PrimaryBlue)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(trans.paymentMethod, fontSize = 10.sp, color = Color.Gray)
+                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Default.ChevronRight, null, tint = Color.LightGray, modifier = Modifier.size(16.dp))
+                }
+            }
         }
     }
 }
