@@ -70,8 +70,15 @@ class InventoryViewModel(
         productDao.deleteProduct(product)
     }
 
-    // Helper simple update (untuk restock / edit cepat)
-    fun update(product: Product) = viewModelScope.launch { productDao.updateProduct(product) }
+    // UPDATE PRODUCT (PENTING: DIPERLUKAN OLEH RESTOCK SCREEN)
+    fun updateProduct(product: Product) {
+        viewModelScope.launch {
+            productDao.updateProduct(product)
+        }
+    }
+
+    // Helper simple update (untuk kompatibilitas)
+    fun update(product: Product) = updateProduct(product)
 
     // --- CRUD MASTER DATA ---
     fun addCategory(name: String) = viewModelScope.launch { categoryDao.insertCategory(Category(name = name)) }
@@ -157,16 +164,12 @@ class InventoryViewModel(
                 val numberIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
 
                 while (it.moveToNext()) {
-                    // Validasi index kolom (-1 berarti kolom tidak ditemukan)
                     if (nameIndex != -1 && numberIndex != -1) {
                         val name = it.getString(nameIndex) ?: ""
                         var number = it.getString(numberIndex) ?: ""
-
-                        // Bersihkan nomor (hilangkan spasi, strip, dll, ambil angka & + saja)
                         number = number.replace("[^\\d+]".toRegex(), "")
 
                         if (name.isNotEmpty()) {
-                            // Cek duplikasi via DAO
                             val exists = customerDao.getCustomerByName(name)
                             if (exists == null) {
                                 customerDao.insertCustomer(Customer(name = name, phoneNumber = number, totalDebt = 0.0))
@@ -182,7 +185,7 @@ class InventoryViewModel(
         }
     }
 
-    // 3. Import Pelanggan dari Excel (Opsional, jika user punya file excel pelanggan)
+    // 3. Import Pelanggan dari Excel
     fun importCustomers(context: Context, uri: Uri, onResult: (Int) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -192,18 +195,15 @@ class InventoryViewModel(
                 var count = 0
 
                 val iter = sheet.iterator()
-                // Skip header row if exists
-                if (iter.hasNext()) iter.next()
+                if (iter.hasNext()) iter.next() // Skip Header
 
                 while (iter.hasNext()) {
                     val row = iter.next()
-
-                    // Asumsi Kolom: 0=Nama, 1=NoHP
                     val nameCell = row.getCell(0)
                     val phoneCell = row.getCell(1)
 
                     val name = nameCell?.toString() ?: ""
-                    var phone = phoneCell?.toString()?.replace("[^\\d]".toRegex(), "") ?: ""
+                    val phone = phoneCell?.toString()?.replace("[^\\d]".toRegex(), "") ?: ""
 
                     if (name.isNotEmpty()) {
                         val exists = customerDao.getCustomerByName(name)

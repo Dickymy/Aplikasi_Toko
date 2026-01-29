@@ -1,10 +1,13 @@
 package com.example.aplikasitokosembakoarkhan
 
 import android.Manifest
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,6 +16,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.Call
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Message
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,6 +45,10 @@ fun CustomerScreen(
 
     // State
     var searchQuery by remember { mutableStateOf("") }
+    var filterType by remember { mutableStateOf("Semua") }
+    var sortOption by remember { mutableStateOf("A-Z") }
+    var showFilterMenu by remember { mutableStateOf(false) }
+
     var showAddDialog by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
 
@@ -45,6 +56,9 @@ fun CustomerScreen(
     var showDeleteErrorDialog by remember { mutableStateOf(false) }
     var showDeleteWarningDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+
+    // State Dialog Import
+    var showImportConfirmDialog by remember { mutableStateOf(false) }
 
     var selectedCustomer by remember { mutableStateOf<Customer?>(null) }
     var nameInput by remember { mutableStateOf("") }
@@ -63,12 +77,44 @@ fun CustomerScreen(
         }
     }
 
-    val filteredCustomers = customers.filter {
-        it.name.contains(searchQuery, ignoreCase = true) || it.phoneNumber.contains(searchQuery)
-    }
+    // LOGIKA FILTER & SORTIR
+    val filteredCustomers = customers
+        .filter {
+            it.name.contains(searchQuery, ignoreCase = true) || it.phoneNumber.contains(searchQuery)
+        }
+        .let { list ->
+            when (sortOption) {
+                "A-Z" -> list.sortedBy { it.name }
+                "Z-A" -> list.sortedByDescending { it.name }
+                "Terbaru" -> list.sortedByDescending { it.id }
+                "Hutang Terbanyak" -> list.sortedByDescending { it.totalDebt }
+                else -> list
+            }
+        }
 
     fun formatRupiah(amount: Double): String {
         return NumberFormat.getCurrencyInstance(Locale("id", "ID")).format(amount).replace("Rp", "Rp ").replace(",00", "")
+    }
+
+    // Fungsi Helper Call/WA
+    fun openDialer(phone: String) {
+        try {
+            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Gagal membuka telepon", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun openWhatsApp(phone: String) {
+        try {
+            var cleanPhone = phone.replace("[^\\d]".toRegex(), "")
+            if (cleanPhone.startsWith("0")) cleanPhone = "62" + cleanPhone.substring(1)
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://wa.me/$cleanPhone"))
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "WhatsApp error/tidak ditemukan", Toast.LENGTH_SHORT).show()
+        }
     }
 
     Scaffold(
@@ -85,8 +131,10 @@ fun CustomerScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
 
-            // --- HEADER: SEARCH & IMPORT KONTAK ---
+            // --- HEADER ---
             Row(verticalAlignment = Alignment.CenterVertically) {
+                // 1. Search Bar
+                // FIX: Menghapus properti colors yang bermasalah, menggunakan default
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
@@ -94,23 +142,58 @@ fun CustomerScreen(
                     leadingIcon = { Icon(Icons.Default.Search, null) },
                     modifier = Modifier.weight(1f),
                     singleLine = true,
-                    shape = RoundedCornerShape(8.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = Color.White,
-                        unfocusedContainerColor = Color.White
-                    )
+                    shape = RoundedCornerShape(8.dp)
                 )
+
                 Spacer(modifier = Modifier.width(8.dp))
 
-                // TOMBOL IMPORT KONTAK HP
-                FilledTonalButton(
-                    onClick = { contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS) },
+                // 2. Tombol Filter
+                Box {
+                    FilledTonalIconButton(
+                        onClick = { showFilterMenu = true },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.size(56.dp)
+                    ) {
+                        Icon(Icons.Default.FilterList, null)
+                    }
+
+                    DropdownMenu(
+                        expanded = showFilterMenu,
+                        onDismissRequest = { showFilterMenu = false }
+                    ) {
+                        Text("Urutkan:", modifier = Modifier.padding(12.dp), fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
+                        DropdownMenuItem(
+                            text = { Text("Nama (A-Z)") },
+                            onClick = { sortOption = "A-Z"; showFilterMenu = false },
+                            leadingIcon = { if(sortOption == "A-Z") Icon(Icons.Default.Check, null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Nama (Z-A)") },
+                            onClick = { sortOption = "Z-A"; showFilterMenu = false },
+                            leadingIcon = { if(sortOption == "Z-A") Icon(Icons.Default.Check, null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Terbaru Ditambahkan") },
+                            onClick = { sortOption = "Terbaru"; showFilterMenu = false },
+                            leadingIcon = { if(sortOption == "Terbaru") Icon(Icons.Default.Check, null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Hutang Terbanyak") },
+                            onClick = { sortOption = "Hutang Terbanyak"; showFilterMenu = false },
+                            leadingIcon = { if(sortOption == "Hutang Terbanyak") Icon(Icons.Default.Check, null) }
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // 3. Tombol Import
+                FilledTonalIconButton(
+                    onClick = { showImportConfirmDialog = true },
                     shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 16.dp)
+                    modifier = Modifier.size(56.dp)
                 ) {
-                    Icon(Icons.Default.Contacts, null) // Ganti ikon kontak
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Import Kontak")
+                    Icon(Icons.Default.ImportContacts, null)
                 }
             }
 
@@ -142,7 +225,9 @@ fun CustomerScreen(
                                 } else {
                                     showDeleteConfirmDialog = true
                                 }
-                            }
+                            },
+                            onCall = { openDialer(customer.phoneNumber) },
+                            onWA = { openWhatsApp(customer.phoneNumber) }
                         )
                     }
                 }
@@ -150,8 +235,26 @@ fun CustomerScreen(
         }
     }
 
-    // --- DIALOGS ---
-    // (Kode dialog Add, Edit, Delete sama seperti sebelumnya)
+    // --- DIALOG ALERT IMPORT ---
+    if (showImportConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showImportConfirmDialog = false },
+            icon = { Icon(Icons.Default.Contacts, null, tint = MaterialTheme.colorScheme.primary) },
+            title = { Text("Import Kontak HP?") },
+            text = { Text("Aplikasi akan membaca kontak di HP Anda dan menambahkannya ke daftar pelanggan.\n\nLanjutkan?") },
+            confirmButton = {
+                Button(onClick = {
+                    showImportConfirmDialog = false
+                    contactsPermissionLauncher.launch(Manifest.permission.READ_CONTACTS)
+                }) { Text("Ya, Import") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showImportConfirmDialog = false }) { Text("Batal") }
+            }
+        )
+    }
+
+    // --- DIALOGS LAINNYA ---
     if (showAddDialog) {
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
@@ -239,13 +342,15 @@ fun CustomerScreen(
     }
 }
 
-// --- KOMPONEN KARTU ---
+// --- KOMPONEN KARTU (TATA LETAK BARU) ---
 @Composable
 fun CustomerItemCard(
     customer: Customer,
     debtFormatted: String,
     onEdit: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onCall: () -> Unit,
+    onWA: () -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -256,10 +361,11 @@ fun CustomerItemCard(
     ) {
         Row(
             modifier = Modifier
-                .padding(12.dp)
+                .padding(16.dp)
                 .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.Top
         ) {
+            // 1. Avatar (Kiri)
             Box(
                 modifier = Modifier
                     .size(48.dp)
@@ -275,35 +381,79 @@ fun CustomerItemCard(
                 )
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(16.dp))
 
+            // 2. Info Tengah
             Column(modifier = Modifier.weight(1f)) {
-                Text(customer.name, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(
+                    text = customer.name,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = Color.Black
+                )
+
                 if (customer.phoneNumber.isNotEmpty()) {
-                    Text(customer.phoneNumber, fontSize = 12.sp, color = Color.Gray)
+                    Text(
+                        text = customer.phoneNumber,
+                        fontSize = 13.sp,
+                        color = Color.Gray
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Tombol Call & WA (Di Bawah Nomor HP)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFFE3F2FD),
+                            modifier = Modifier.size(32.dp).clickable { onCall() }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Outlined.Call, "Call", tint = Color(0xFF1565C0), modifier = Modifier.size(16.dp))
+                            }
+                        }
+
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFFE8F5E9),
+                            modifier = Modifier.size(32.dp).clickable { onWA() }
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(Icons.Outlined.Message, "WA", tint = Color(0xFF2E7D32), modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    }
                 } else {
                     Text("-", fontSize = 12.sp, color = Color.LightGray)
                 }
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                if (customer.totalDebt > 0) {
-                    Surface(color = Color(0xFFFFEBEE), shape = RoundedCornerShape(4.dp)) {
-                        Text("Hutang: $debtFormatted", modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 11.sp, color = Color.Red, fontWeight = FontWeight.Bold)
-                    }
-                } else {
-                    Surface(color = Color(0xFFE8F5E9), shape = RoundedCornerShape(4.dp)) {
-                        Text("Bebas Hutang", modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 11.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
-                    }
-                }
             }
 
-            Row {
-                IconButton(onClick = onEdit) {
-                    Icon(Icons.Default.Edit, "Edit", tint = Color.Blue)
+            // 3. Info Kanan
+            Column(horizontalAlignment = Alignment.End) {
+                if (customer.totalDebt > 0) {
+                    Text(
+                        text = "Hutang:",
+                        fontSize = 10.sp,
+                        color = Color.Gray
+                    )
+                    Text(
+                        text = debtFormatted,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Red
+                    )
                 }
-                IconButton(onClick = onDelete) {
-                    Icon(Icons.Default.Delete, "Hapus", tint = Color.Red)
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Tombol Edit & Delete
+                Row {
+                    IconButton(onClick = onEdit, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Edit, "Edit", tint = Color.Blue, modifier = Modifier.size(18.dp))
+                    }
+                    IconButton(onClick = onDelete, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Delete, "Hapus", tint = Color.Red, modifier = Modifier.size(18.dp))
+                    }
                 }
             }
         }

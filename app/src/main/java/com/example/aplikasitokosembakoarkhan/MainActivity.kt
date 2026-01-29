@@ -20,7 +20,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -61,11 +60,7 @@ fun MainApp() {
     var showPinDialog by remember { mutableStateOf(false) }
     var targetRoute by remember { mutableStateOf("") }
 
-    // PERBAIKAN: Baca PIN langsung dari SecurityHelper setiap kali UI dirender ulang
-    // (Hapus 'remember' agar selalu update jika user hapus/tambah pin)
     val isPinSet = SecurityHelper.isPinSet(context)
-
-    // Ambil daftar menu terkunci dari ViewModel
     val lockedMenus by settingsViewModel.lockedMenus.collectAsState()
 
     val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
@@ -120,14 +115,12 @@ fun MainApp() {
                         )
 
                         group.items.forEach { item ->
-                            // LOGIKA: Cek apakah route ada di daftar 'lockedMenus'
                             val isMenuLocked = lockedMenus.contains(item.route)
 
                             NavigationDrawerItem(
                                 label = {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(item.title)
-                                        // Ikon Gembok Merah jika menu ini dikunci
                                         if (isPinSet && isMenuLocked) {
                                             Spacer(modifier = Modifier.width(8.dp))
                                             Icon(
@@ -144,10 +137,6 @@ fun MainApp() {
                                 onClick = {
                                     scope.launch { drawerState.close() }
 
-                                    // LOGIKA KUNCI:
-                                    // 1. PIN harus ada (isPinSet = true)
-                                    // 2. Menu ini harus ada di daftar kunci (isMenuLocked = true)
-                                    // 3. Sesi belum dibuka (isSessionUnlocked = false)
                                     if (isPinSet && isMenuLocked && !isSessionUnlocked) {
                                         targetRoute = item.route
                                         showPinDialog = true
@@ -165,9 +154,8 @@ fun MainApp() {
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = Color.LightGray.copy(alpha = 0.5f))
                     }
 
-                    // Import Excel (Special Case)
                     item {
-                        val isImportLocked = lockedMenus.contains("products") // Ikut kunci produk
+                        val isImportLocked = lockedMenus.contains("products")
                         NavigationDrawerItem(
                             label = { Text("Import Excel") },
                             icon = { Icon(Icons.Default.UploadFile, null) },
@@ -202,18 +190,15 @@ fun MainApp() {
                         }
                     },
                     actions = {
-                        // INDIKATOR STATUS GEMBOK (POJOK KANAN ATAS)
                         if (isPinSet) {
                             IconButton(onClick = {
                                 if (isSessionUnlocked) {
-                                    // Klik Hijau -> Kunci Kembali (Merah)
                                     isSessionUnlocked = false
                                     Toast.makeText(context, "Sesi Terkunci", Toast.LENGTH_SHORT).show()
                                     if (lockedMenus.contains(currentRoute)) {
                                         navController.navigate("dashboard")
                                     }
                                 } else {
-                                    // Klik Merah -> Minta PIN -> Hijau
                                     targetRoute = currentRoute
                                     showPinDialog = true
                                 }
@@ -231,7 +216,16 @@ fun MainApp() {
         ) { padding ->
             Box(modifier = Modifier.padding(padding)) {
                 NavHost(navController, startDestination = "dashboard") {
-                    composable("dashboard") { DashboardScreen() }
+                    // --- PERBAIKAN UTAMA DI SINI (Menambahkan Parameter Navigasi) ---
+                    composable("dashboard") {
+                        DashboardScreen(
+                            onNavigateToSales = { navController.navigate("sales") },
+                            onNavigateToProduct = { navController.navigate("products") },
+                            onNavigateToReport = { navController.navigate("report") }
+                        )
+                    }
+                    // ---------------------------------------------------------------
+
                     composable("sales") { SalesScreen() }
                     composable("products") { ProductScreen() }
                     composable("customers") { CustomerScreen() }
