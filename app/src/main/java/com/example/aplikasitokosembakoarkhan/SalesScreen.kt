@@ -30,6 +30,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -106,9 +107,13 @@ fun SalesScreen(
     val focusRequester = remember { FocusRequester() }
     var showScanner by remember { mutableStateOf(false) }
 
-    // State Stok Habis Alert
+    // State Stok Habis Alert (Saat Input Biasa)
     var showOutOfStockDialog by remember { mutableStateOf(false) }
     var outOfStockProductName by remember { mutableStateOf("") }
+
+    // State Stok Habis Alert (Saat Restore Pending - BUG FIX)
+    var showPendingStockErrorDialog by remember { mutableStateOf(false) }
+    var pendingStockErrorText by remember { mutableStateOf("") }
 
     val cameraPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -145,7 +150,6 @@ fun SalesScreen(
             newCart[product] = currentQty + 1.0
             cart = newCart
         } else {
-            // Tampilkan Dialog Stok Habis
             outOfStockProductName = product.name
             showOutOfStockDialog = true
         }
@@ -157,7 +161,6 @@ fun SalesScreen(
             if (newQty <= 0.0) newCart.remove(product) else newCart[product] = newQty
             cart = newCart
         } else {
-            // Tampilkan Dialog Stok Habis
             outOfStockProductName = product.name
             showOutOfStockDialog = true
         }
@@ -171,12 +174,50 @@ fun SalesScreen(
         }
     }
 
+    // --- FIX BUG PENDING: CEK STOK SAAT RESTORE ---
     fun restorePendingTransaction(pending: PendingTransaction) {
-        if (cart.isNotEmpty()) pendingList.add(PendingTransaction(customerName = selectedCustomerName, cartItems = cart))
-        cart = pending.cartItems; selectedCustomerName = pending.customerName
-        pendingList.remove(pending); showPendingDialog = false
-        Toast.makeText(context, "Transaksi dilanjutkan", Toast.LENGTH_SHORT).show()
+        // 1. Simpan keranjang saat ini ke pending jika ada isinya
+        if (cart.isNotEmpty()) {
+            pendingList.add(PendingTransaction(customerName = selectedCustomerName, cartItems = cart))
+        }
+
+        val validCart = mutableMapOf<Product, Double>()
+        val removedItems = mutableListOf<String>()
+
+        // 2. Loop setiap item di pending, cek stok real-time dari productList
+        pending.cartItems.forEach { (pendingProduct, qty) ->
+            // Cari data produk terbaru berdasarkan ID
+            val currentProduct = productList.find { it.id == pendingProduct.id }
+
+            if (currentProduct != null) {
+                if (currentProduct.stock >= qty) {
+                    // Stok cukup: Masukkan ke cart baru (gunakan data produk terbaru)
+                    validCart[currentProduct] = qty
+                } else {
+                    // Stok KURANG: Masukkan ke daftar hapus
+                    removedItems.add("- ${currentProduct.name} (Stok: ${formatQty(currentProduct.stock)}, Diminta: ${formatQty(qty)})")
+                }
+            } else {
+                // Produk sudah dihapus dari database
+                removedItems.add("- ${pendingProduct.name} (Data barang hilang)")
+            }
+        }
+
+        // 3. Update State
+        cart = validCart
+        selectedCustomerName = pending.customerName
+        pendingList.remove(pending)
+        showPendingDialog = false
+
+        // 4. Tampilkan Alert jika ada barang yang dihapus
+        if (removedItems.isNotEmpty()) {
+            pendingStockErrorText = "Barang berikut dihapus otomatis dari keranjang karena stok habis/tidak cukup:\n\n" + removedItems.joinToString("\n")
+            showPendingStockErrorDialog = true
+        } else {
+            Toast.makeText(context, "Transaksi dilanjutkan", Toast.LENGTH_SHORT).show()
+        }
     }
+    // ----------------------------------------------
 
     fun processBarcode(code: String) {
         val productFound = productList.find { it.barcode == code }
@@ -350,6 +391,12 @@ fun SalesScreen(
                                 Text(product.name, fontWeight = FontWeight.Bold)
                                 // UPDATE: TAMPILKAN KATEGORI DISINI
                                 Text("${product.category} • @ ${formatRupiah(product.sellPrice)} / ${product.unit}", fontSize = 12.sp, color = Color.Gray)
+
+                                // UPDATE: TAMPILKAN KETERANGAN JIKA ADA
+                                if (product.description.isNotEmpty()) {
+                                    Text(product.description, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontStyle = FontStyle.Italic)
+                                }
+
                                 val stockColor = if (product.stock <= 5) Color.Red else Color.Black
                                 Text("Sisa: ${formatQty(product.stock)}", fontSize = 11.sp, color = stockColor)
                                 if (product.wholesaleQty > 0) Text("Grosir: ${formatRupiah(product.wholesalePrice)} (Min ${formatQty(product.wholesaleQty)})", fontSize = 10.sp, color = Color(0xFF2E7D32))
@@ -386,7 +433,7 @@ fun SalesScreen(
             dismissButton = { TextButton(onClick = { showPendingConfirmDialog = false }) { Text("Batal") } })
     }
 
-    // --- DIALOG STOK HABIS ---
+    // --- DIALOG STOK HABIS (NORMAL) ---
     if (showOutOfStockDialog) {
         AlertDialog(
             onDismissRequest = { showOutOfStockDialog = false },
@@ -394,6 +441,17 @@ fun SalesScreen(
             title = { Text("Stok Habis!") },
             text = { Text("Maaf, stok untuk barang \"$outOfStockProductName\" sudah habis atau tidak mencukupi.") },
             confirmButton = { Button(onClick = { showOutOfStockDialog = false }) { Text("OK") } }
+        )
+    }
+
+    // --- DIALOG STOK HABIS (PENDING ERROR) ---
+    if (showPendingStockErrorDialog) {
+        AlertDialog(
+            onDismissRequest = { showPendingStockErrorDialog = false },
+            icon = { Icon(Icons.Default.ErrorOutline, null, tint = Color.Red) },
+            title = { Text("Perhatian!") },
+            text = { Text(pendingStockErrorText) },
+            confirmButton = { Button(onClick = { showPendingStockErrorDialog = false }) { Text("Mengerti") } }
         )
     }
 
@@ -557,7 +615,7 @@ fun PaymentDialog(
             cart.forEach { (product, qty) ->
                 val finalPrice = getPrice(product, qty); val isWholesaleActive = finalPrice < product.sellPrice
 
-                // UPDATE: TAMPILAN ITEM PEMBAYARAN LEBIH DETAIL (GAMBAR + KATEGORI)
+                // UPDATE: TAMPILAN ITEM PEMBAYARAN LEBIH DETAIL (GAMBAR + KATEGORI + KETERANGAN)
                 Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     // Gambar
                     if (product.imagePath != null) AsyncImage(model = File(product.imagePath), null, Modifier.size(40.dp).clip(RoundedCornerShape(6.dp)).background(Color.LightGray), contentScale = ContentScale.Crop)
@@ -569,6 +627,12 @@ fun PaymentDialog(
                         Text(product.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         // Kategori & Satuan
                         Text("${product.category} • ${product.unit}", fontSize = 11.sp, color = Color.Gray)
+
+                        // UPDATE: TAMPILKAN KETERANGAN DI KONFIRMASI BAYAR
+                        if (product.description.isNotEmpty()) {
+                            Text(product.description, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontStyle = FontStyle.Italic)
+                        }
+
                         if (isWholesaleActive) Text("Grosir Aktif", fontSize = 10.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
                     }
 

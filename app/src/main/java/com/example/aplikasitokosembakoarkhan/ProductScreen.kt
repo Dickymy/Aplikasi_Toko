@@ -67,6 +67,9 @@ fun ProductScreen(
     var selectedUnit by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf("") }
 
+    // --- STATE KETERANGAN (Sederhana, tanpa dropdown) ---
+    var description by remember { mutableStateOf("") }
+
     // IMAGE STATE
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var currentImagePath by remember { mutableStateOf<String?>(null) }
@@ -103,7 +106,6 @@ fun ProductScreen(
 
     val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
         if (success) {
-            // Gunakan tempCameraUri yang sudah disiapkan
             tempCameraUri?.let { uri -> selectedImageUri = uri }
         }
     }
@@ -117,6 +119,24 @@ fun ProductScreen(
         val matchUnit = selectedFilterUnit == "Semua" || product.unit == selectedFilterUnit
         matchSearch && matchCategory && matchUnit
     }
+
+    // --- LOGIKA BARU: OTOMATIS PILIH KATEGORI PRIORITAS ---
+    // Cari kategori yang ditandai sebagai prioritas (Single Priority)
+    val priorityCategory = dbCategories.find { it.isPriority }
+
+    LaunchedEffect(showDialog, priorityCategory) {
+        // Hanya jalan jika dialog terbuka DAN mode Tambah Baru (bukan Edit)
+        if (showDialog && !isEditing) {
+            if (priorityCategory != null) {
+                // Jika ada kategori prioritas, pilih otomatis
+                selectedCategory = priorityCategory.name
+            } else if (dbCategories.isNotEmpty() && selectedCategory.isEmpty()) {
+                // Fallback: Jika tidak ada prioritas, pilih yang pertama di list
+                selectedCategory = dbCategories.first().name
+            }
+        }
+    }
+    // ------------------------------------------------------
 
     fun createImageUri(context: Context): Uri {
         val directory = File(context.filesDir, "camera_images")
@@ -159,7 +179,7 @@ fun ProductScreen(
     Scaffold(
         floatingActionButton = {
             FloatingActionButton(onClick = {
-                name=""; barcode=""; sellPrice=""; buyPrice=""; stock=""
+                name=""; barcode=""; sellPrice=""; buyPrice=""; stock=""; description = ""
                 selectedUnit = if(dbUnits.isNotEmpty()) dbUnits[0].name else ""
                 selectedCategory = if(dbCategories.isNotEmpty()) dbCategories[0].name else ""
                 isWholesale=false; wholesalePrice=""; wholesaleMinQty=""; expireDate=null; selectedImageUri=null; currentImagePath=null
@@ -254,6 +274,7 @@ fun ProductScreen(
                                 wholesalePrice = formatInput(product.wholesalePrice.toInt().toString())
                                 wholesaleMinQty = product.wholesaleQty.toString()
                                 expireDate = if(product.expireDate > 0) product.expireDate else null
+                                description = product.description // Load deskripsi
                                 currentProductId = product.id
                                 currentImagePath = product.imagePath
                                 selectedImageUri = null
@@ -333,10 +354,34 @@ fun ProductScreen(
                 OutlinedTextField(value = barcode, onValueChange = { barcode = it }, label = { Text("Barcode (Unik)") }, trailingIcon = { IconButton(onClick = { scannerPermissionLauncher.launch(Manifest.permission.CAMERA) }) { Icon(Icons.Default.QrCodeScanner, null) } }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nama Barang") }, modifier = Modifier.fillMaxWidth())
 
+                // KETERANGAN (Input Biasa, Tanpa Dropdown)
+                // Jika Anda benar-benar tidak ingin melihat kolom ini, Anda bisa menghapus blok OutlinedTextField ini.
+                // Tapi untuk keamanan data (karena database membutuhkan field ini), saya biarkan sebagai input teks biasa.
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Keterangan (Opsional)") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                // KATEGORI - Otomatis Terpilih
                 Box(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
                     OutlinedTextField(value = selectedCategory, onValueChange = {}, readOnly = true, label = { Text("Kategori") }, trailingIcon = { IconButton(onClick = { expandedCategory = true }) { Icon(Icons.Default.ArrowDropDown, null) } }, modifier = Modifier.fillMaxWidth())
                     DropdownMenu(expanded = expandedCategory, onDismissRequest = { expandedCategory = false }) {
-                        dbCategories.forEach { cat -> DropdownMenuItem(text = { Text(cat.name) }, onClick = { selectedCategory = cat.name; expandedCategory = false }) }
+                        dbCategories.forEach { cat ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(cat.name)
+                                        if (cat.isPriority) {
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("(Default)", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
+                                },
+                                onClick = { selectedCategory = cat.name; expandedCategory = false }
+                            )
+                        }
                         Divider()
                         DropdownMenuItem(text = { Text("+ Kategori Baru", color = MaterialTheme.colorScheme.primary) }, onClick = { expandedCategory = false; newQuickCategoryName = ""; showQuickAddCategory = true })
                     }
@@ -390,7 +435,8 @@ fun ProductScreen(
                             imagePath = currentImagePath,
                             expireDate = expireDate?:0L,
                             wholesaleQty = if(isWholesale) wholesaleMinQty.replace(",", ".").toDoubleOrNull() ?: 0.0 else 0.0,
-                            wholesalePrice = if(isWholesale) cleanInput(wholesalePrice) else 0.0
+                            wholesalePrice = if(isWholesale) cleanInput(wholesalePrice) else 0.0,
+                            description = description
                         )
                         if (isEditing) viewModel.updateProductWithImage(p, selectedImageUri, context) else viewModel.insertProductWithImage(p, selectedImageUri, context)
                         showDialog = false
@@ -447,7 +493,7 @@ fun ProductScreen(
             onDismissRequest = { showQuickAddCategory = false },
             title = { Text("Tambah Kategori Baru") },
             text = { OutlinedTextField(value = newQuickCategoryName, onValueChange = { newQuickCategoryName = it }, label = { Text("Nama Kategori") }, singleLine = true) },
-            confirmButton = { Button(onClick = { if (newQuickCategoryName.isNotEmpty()) { viewModel.addCategory(newQuickCategoryName); selectedCategory = newQuickCategoryName; showQuickAddCategory = false } }) { Text("Simpan") } },
+            confirmButton = { Button(onClick = { if (newQuickCategoryName.isNotEmpty()) { viewModel.addCategory(newQuickCategoryName, false); selectedCategory = newQuickCategoryName; showQuickAddCategory = false } }) { Text("Simpan") } },
             dismissButton = { TextButton(onClick = { showQuickAddCategory = false }) { Text("Batal") } }
         )
     }
@@ -504,21 +550,46 @@ fun ProductItem(
     imageFile: File?,
     formatQty: (Double) -> String
 ) {
-    Card(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), elevation = CardDefaults.cardElevation(2.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        elevation = CardDefaults.cardElevation(2.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                 if (imageFile != null) {
-                    Image(rememberAsyncImagePainter(imageFile), "Img", modifier = Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)).background(Color.LightGray), contentScale = ContentScale.Crop)
+                    Image(
+                        rememberAsyncImagePainter(imageFile),
+                        "Img",
+                        modifier = Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)).background(Color.LightGray),
+                        contentScale = ContentScale.Crop
+                    )
                     Spacer(modifier = Modifier.width(12.dp))
                 }
                 Column(modifier = Modifier.weight(1f)) {
                     Text(product.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text("Kode: ${product.barcode}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) { Text(product.category, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall) }
+                        Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = MaterialTheme.shapes.small) {
+                            Text(product.category, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall)
+                        }
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Stok: ${formatQty(product.stock)} ${product.unit}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     }
+
+                    // --- TAMBAHAN: Menampilkan Keterangan ---
+                    if (product.description.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Ket: ${product.description}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.DarkGray,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                        )
+                    }
+                    // ----------------------------------------
+
                     if (product.expireDate > 0) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text("Exp: ${SimpleDateFormat("dd/MM/yy", Locale.getDefault()).format(Date(product.expireDate))}", style = MaterialTheme.typography.labelSmall, color = Color.Red)

@@ -11,7 +11,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
-// --- TAMBAHKAN DAO BARU DI SINI (Internal File) ---
+// --- DAO Tambahan ---
 @Dao
 interface DebtTransactionDao {
     @Query("SELECT * FROM debt_transactions WHERE customerId = :custId ORDER BY date DESC")
@@ -24,10 +24,10 @@ interface DebtTransactionDao {
     suspend fun deleteAllTransactionsByCustomer(custId: Int)
 }
 
-// --- UPDATE DATABASE ---
+// --- CONFIGURATION DATABASE ---
 @Database(
-    entities = [Product::class, Sale::class, Category::class, UnitModel::class, Expense::class, Customer::class, DebtTransaction::class], // Tambah DebtTransaction
-    version = 3, // Naik ke Versi 3
+    entities = [Product::class, Sale::class, Category::class, UnitModel::class, Expense::class, Customer::class, DebtTransaction::class],
+    version = 5, // Versi 5
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -37,33 +37,42 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun unitDao(): UnitDao
     abstract fun expenseDao(): ExpenseDao
     abstract fun customerDao(): CustomerDao
-    abstract fun debtTransactionDao(): DebtTransactionDao // Tambah ini
+    abstract fun debtTransactionDao(): DebtTransactionDao
 
     companion object {
         @Volatile
         private var Instance: AppDatabase? = null
 
-        // Migrasi 1->2 (Yang lama)
         val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE sales ADD COLUMN customerName TEXT NOT NULL DEFAULT 'Umum'")
             }
         }
 
-        // Migrasi 2->3 (Baru: Tambah kolom hasHistory & Tabel debt_transactions)
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(database: SupportSQLiteDatabase) {
-                // 1. Update Customer Table
                 database.execSQL("ALTER TABLE customers ADD COLUMN hasHistory INTEGER NOT NULL DEFAULT 0")
-                // 2. Create Debt Transaction Table
                 database.execSQL("CREATE TABLE IF NOT EXISTS `debt_transactions` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `customerId` INTEGER NOT NULL, `type` TEXT NOT NULL, `amount` REAL NOT NULL, `date` INTEGER NOT NULL)")
+            }
+        }
+
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE categories ADD COLUMN isPriority INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        // PENTING: Migrasi untuk menambah kolom description di tabel products
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE products ADD COLUMN description TEXT NOT NULL DEFAULT ''")
             }
         }
 
         fun getDatabase(context: Context): AppDatabase {
             return Instance ?: synchronized(this) {
                 Room.databaseBuilder(context, AppDatabase::class.java, "toko_database")
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3) // Tambahkan migrasi baru
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5) // Daftarkan semua migrasi
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { Instance = it }

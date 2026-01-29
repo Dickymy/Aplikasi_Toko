@@ -18,7 +18,7 @@ import java.util.UUID
 
 class InventoryViewModel(
     private val productDao: ProductDao,
-    private val categoryDao: CategoryDao,
+    private val categoryDao: CategoryDao, // Pastikan ini menggunakan Dao, bukan Repository
     private val unitDao: UnitDao,
     private val customerDao: CustomerDao,
     private val debtTransactionDao: DebtTransactionDao
@@ -70,19 +70,32 @@ class InventoryViewModel(
         productDao.deleteProduct(product)
     }
 
-    // UPDATE PRODUCT (PENTING: DIPERLUKAN OLEH RESTOCK SCREEN)
     fun updateProduct(product: Product) {
         viewModelScope.launch {
             productDao.updateProduct(product)
         }
     }
 
-    // Helper simple update (untuk kompatibilitas)
     fun update(product: Product) = updateProduct(product)
 
     // --- CRUD MASTER DATA ---
-    fun addCategory(name: String) = viewModelScope.launch { categoryDao.insertCategory(Category(name = name)) }
-    fun updateCategory(category: Category) = viewModelScope.launch { categoryDao.updateCategory(category) }
+
+    // FUNGSI INI SUDAH DIPERBAIKI (Hanya ada satu versi)
+    fun addCategory(name: String, isPriority: Boolean) = viewModelScope.launch {
+        if (isPriority) {
+            categoryDao.clearAllPriorities()
+        }
+        categoryDao.insertCategory(Category(name = name, isPriority = isPriority))
+    }
+
+    // FUNGSI INI SUDAH DIPERBAIKI (Hanya ada satu versi)
+    fun updateCategory(category: Category) = viewModelScope.launch {
+        if (category.isPriority) {
+            categoryDao.clearAllPriorities()
+        }
+        categoryDao.updateCategory(category)
+    }
+
     fun deleteCategory(category: Category) = viewModelScope.launch { categoryDao.deleteCategory(category) }
 
     fun addUnit(name: String) = viewModelScope.launch { unitDao.insertUnit(UnitModel(name = name)) }
@@ -100,12 +113,10 @@ class InventoryViewModel(
     }
 
     fun deleteCustomer(c: Customer) = viewModelScope.launch {
-        // Hapus Data Pelanggan & Seluruh Riwayat Transaksinya
         customerDao.deleteCustomer(c)
         debtTransactionDao.deleteAllTransactionsByCustomer(c.id)
     }
 
-    // Transaksi: Bayar Hutang
     fun payDebt(c: Customer, amount: Double) = viewModelScope.launch {
         val newDebt = (c.totalDebt - amount).coerceAtLeast(0.0)
         customerDao.updateCustomer(c.copy(
@@ -121,7 +132,6 @@ class InventoryViewModel(
         ))
     }
 
-    // Transaksi: Tambah Hutang (Ngutang)
     fun addDebt(c: Customer, amount: Double) = viewModelScope.launch {
         customerDao.updateCustomer(c.copy(
             totalDebt = c.totalDebt + amount,
@@ -136,12 +146,10 @@ class InventoryViewModel(
         ))
     }
 
-    // Ambil Riwayat Transaksi (Untuk Dialog Detail)
     fun getDebtHistory(customerId: Int) = debtTransactionDao.getTransactionsByCustomer(customerId)
 
     // --- IMPORT / EXPORT FEATURES ---
 
-    // 1. Import Produk dari Excel
     fun importExcel(ctx: Context, uri: Uri, onResult: (Int) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             val list = ExcelHelper.parseExcelToProducts(ctx, uri)
@@ -150,7 +158,6 @@ class InventoryViewModel(
         }
     }
 
-    // 2. Import Pelanggan dari Kontak HP
     fun importPhoneContacts(context: Context, onResult: (Int) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             var count = 0
@@ -185,7 +192,6 @@ class InventoryViewModel(
         }
     }
 
-    // 3. Import Pelanggan dari Excel
     fun importCustomers(context: Context, uri: Uri, onResult: (Int) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -195,7 +201,7 @@ class InventoryViewModel(
                 var count = 0
 
                 val iter = sheet.iterator()
-                if (iter.hasNext()) iter.next() // Skip Header
+                if (iter.hasNext()) iter.next()
 
                 while (iter.hasNext()) {
                     val row = iter.next()
@@ -222,7 +228,6 @@ class InventoryViewModel(
         }
     }
 
-    // --- PRIVATE HELPERS ---
     private fun saveImageToInternalStorage(context: Context, uri: Uri?): String? {
         if (uri == null) return null
         return try {
