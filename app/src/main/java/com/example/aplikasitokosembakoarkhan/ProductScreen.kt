@@ -3,6 +3,7 @@ package com.example.aplikasitokosembakoarkhan
 import android.Manifest
 import android.app.DatePickerDialog
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -40,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
@@ -106,7 +108,6 @@ fun ProductScreen(
     }
 
     Scaffold(
-        // Hapus containerColor agar kembali ke default background aplikasi (biasanya putih/tema sistem)
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { productToEdit = null; showAddDialog = true },
@@ -194,7 +195,7 @@ fun ProductScreen(
         }
     }
 
-    // --- DIALOG INPUT/EDIT (TAMPILAN DIPERBAIKI: CARD + STICKY BUTTON) ---
+    // --- DIALOG INPUT/EDIT ---
     if (showAddDialog) {
         ProductEntryDialog(
             product = productToEdit,
@@ -206,8 +207,10 @@ fun ProductScreen(
             onSave = { newProduct, uri ->
                 if (productToEdit == null) {
                     viewModel.insertProductWithImage(newProduct, uri, context)
+                    Toast.makeText(context, "Berhasil menambahkan ${newProduct.name}", Toast.LENGTH_SHORT).show()
                 } else {
                     viewModel.updateProductWithImage(newProduct, uri, context)
+                    Toast.makeText(context, "Berhasil mengubah ${newProduct.name}", Toast.LENGTH_SHORT).show()
                 }
                 showAddDialog = false
             },
@@ -240,6 +243,7 @@ fun ProductScreen(
                     if (addQty > 0) {
                         val newStock = restockProduct!!.stock + addQty
                         viewModel.updateProductWithImage(restockProduct!!.copy(stock = newStock), null, context)
+                        Toast.makeText(context, "Stok berhasil ditambahkan!", Toast.LENGTH_SHORT).show()
                         showRestockDialog = false
                     }
                 }) { Text("Simpan") }
@@ -258,7 +262,11 @@ fun ProductScreen(
             text = { Text("Anda yakin ingin menghapus '${product.name}'?") },
             confirmButton = {
                 Button(
-                    onClick = { viewModel.delete(product); showDeleteConfirm = null },
+                    onClick = {
+                        viewModel.delete(product)
+                        Toast.makeText(context, "Barang berhasil dihapus", Toast.LENGTH_SHORT).show()
+                        showDeleteConfirm = null
+                    },
                     colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
                 ) { Text("Hapus") }
             },
@@ -282,7 +290,7 @@ fun ProductScreen(
     }
 }
 
-// --- KOMPONEN CARD ITEM (CARD PUTIH BERSIH) ---
+// --- KOMPONEN CARD ITEM ---
 @Composable
 fun ProductItemCard(
     product: Product,
@@ -301,13 +309,12 @@ fun ProductItemCard(
 
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onEdit() },
-        colors = CardDefaults.cardColors(containerColor = Color.White), // WARNA CARD PUTIH
-        elevation = CardDefaults.cardElevation(3.dp), // Shadow agar menonjol
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(3.dp),
         shape = RoundedCornerShape(12.dp)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row {
-                // Image Box
                 Box(
                     modifier = Modifier
                         .size(80.dp)
@@ -322,17 +329,12 @@ fun ProductItemCard(
 
                 Spacer(modifier = Modifier.width(12.dp))
 
-                // Detail Info
                 Column(modifier = Modifier.weight(1f)) {
                     Text(product.name, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-
                     if (product.barcode.isNotEmpty()) {
                         Text("Kode: ${product.barcode}", fontSize = 11.sp, color = Color.Gray)
                     }
-
                     Spacer(modifier = Modifier.height(4.dp))
-
-                    // Kategori & Unit Label
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(color = Color(0xFFE3F2FD), shape = RoundedCornerShape(4.dp)) {
                             Text(
@@ -346,18 +348,8 @@ fun ProductItemCard(
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("• ${product.unit}", fontSize = 12.sp, color = Color.Gray)
                     }
-
-                    // Keterangan
                     if (product.description.isNotEmpty()) {
-                        Text(
-                            text = product.description,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color.DarkGray,
-                            fontStyle = FontStyle.Italic,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 2.dp)
-                        )
+                        Text(text = product.description, style = MaterialTheme.typography.bodySmall, color = Color.DarkGray, fontStyle = FontStyle.Italic, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
                     }
                 }
             }
@@ -366,36 +358,14 @@ fun ProductItemCard(
             Divider(color = Color(0xFFF0F0F0))
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Footer
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                // Harga & Stok
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                 Column {
-                    Text(
-                        "Rp ${NumberFormat.getInstance(Locale("id", "ID")).format(product.sellPrice)}",
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 15.sp
-                    )
-
+                    Text("Rp ${NumberFormat.getInstance(Locale("id", "ID")).format(product.sellPrice)}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 15.sp)
                     Row(modifier = Modifier.padding(top = 2.dp)) {
-                        Text(
-                            text = "Stok: ${formatQty(product.stock)}",
-                            color = if (isLowStock) Color.Red else Color(0xFF2E7D32),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        if (expiredInfo.isNotEmpty()) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(expiredInfo, color = Color(0xFFEF6C00), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
+                        Text(text = "Stok: ${formatQty(product.stock)}", color = if (isLowStock) Color.Red else Color(0xFF2E7D32), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        if (expiredInfo.isNotEmpty()) { Spacer(modifier = Modifier.width(8.dp)); Text(expiredInfo, color = Color(0xFFEF6C00), fontSize = 11.sp, fontWeight = FontWeight.Bold) }
                     }
                 }
-
-                // Tombol Aksi
                 Row {
                     IconButton(onClick = onRestock) { Icon(Icons.Default.AddBox, "Restok", tint = Color(0xFF2E7D32)) }
                     IconButton(onClick = onEdit) { Icon(Icons.Default.Edit, "Edit", tint = Color.Blue) }
@@ -406,7 +376,7 @@ fun ProductItemCard(
     }
 }
 
-// --- DIALOG ENTRY (FIX: BUTTON TIDAK TERTUTUP & TIDAK FULL SCREEN) ---
+// --- DIALOG ENTRY (FIX KAMERA) ---
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProductEntryDialog(
@@ -441,10 +411,44 @@ fun ProductEntryDialog(
     var showQuickUnit by remember { mutableStateOf(false) }
     var newText by remember { mutableStateOf("") }
 
+    // --- LOGIKA KAMERA & GAMBAR YANG DIPERBAIKI ---
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var tempCameraUri by remember { mutableStateOf<Uri?>(null) }
     var showImageSourceDialog by remember { mutableStateOf(false) }
 
+    // Helper untuk membuat File Provider URI
+    fun createImageUri(ctx: Context): Uri {
+        val file = File(ctx.filesDir, "IMG_${System.currentTimeMillis()}.jpg")
+        return FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+    }
+
+    // Launcher Kamera yang menyimpan hasil
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        if (success && tempCameraUri != null) {
+            selectedImageUri = tempCameraUri // Update UI dengan foto baru
+        }
+    }
+
+    // Fungsi Pemicu Kamera yang aman
+    fun launchCamera() {
+        val uri = createImageUri(context)
+        tempCameraUri = uri // Simpan URI sementara
+        cameraLauncher.launch(uri)
+    }
+
+    // Launcher Permission Kamera
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+        if (isGranted) {
+            launchCamera() // Jika diizinkan, langsung buka kamera
+        } else {
+            Toast.makeText(context, "Izin kamera ditolak", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // Galeri Launcher
+    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { selectedImageUri = it }
+
+    // Helper Format
     fun cleanInput(s: String) = s.replace(".", "").replace(",", "").toDoubleOrNull() ?: 0.0
     fun formatInput(s: String): String {
         return try {
@@ -452,36 +456,18 @@ fun ProductEntryDialog(
             NumberFormat.getInstance(Locale("id", "ID")).format(num)
         } catch (e: Exception) { s }
     }
-    fun createImageUri(ctx: Context): Uri {
-        val file = File(ctx.filesDir, "IMG_${System.currentTimeMillis()}.jpg")
-        return FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
-    }
-
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
-        if (isGranted) {
-            val uri = createImageUri(context); tempCameraUri = uri
-            Toast.makeText(context, "Izin diberikan, silakan coba lagi", Toast.LENGTH_SHORT).show()
-        } else { Toast.makeText(context, "Izin kamera ditolak", Toast.LENGTH_SHORT).show() }
-    }
-
-    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { if(it) selectedImageUri = tempCameraUri }
-    val galleryLauncher = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { selectedImageUri = it }
 
     var showScanner by remember { mutableStateOf(false) }
     val scannerPermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if(it) showScanner = true }
-
     val datePickerDialog = DatePickerDialog(context, { _, y, m, d -> val c=Calendar.getInstance(); c.set(y,m,d); expireDate=c.timeInMillis }, Calendar.getInstance().get(Calendar.YEAR), Calendar.getInstance().get(Calendar.MONTH), Calendar.getInstance().get(Calendar.DAY_OF_MONTH))
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 650.dp), // BATAS TINGGI DIALOG
+            modifier = Modifier.fillMaxWidth().heightIn(max = 650.dp),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White)
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                // 1. HEADER
                 Text(
                     text = if (product == null) "Tambah Barang" else "Edit Barang",
                     fontWeight = FontWeight.Bold,
@@ -490,14 +476,11 @@ fun ProductEntryDialog(
                 )
                 Spacer(Modifier.height(16.dp))
 
-                // 2. KONTEN SCROLLABLE (Menggunakan weight agar sisa ruang dipakai list)
                 Column(
-                    modifier = Modifier
-                        .weight(1f, fill = false)
-                        .verticalScroll(rememberScrollState()),
+                    modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Image Picker
+                    // IMAGE PICKER
                     Box(
                         modifier = Modifier
                             .size(100.dp)
@@ -532,7 +515,6 @@ fun ProductEntryDialog(
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedTextField(value = stock, onValueChange = { if(it.all { c -> c.isDigit() || c=='.' }) stock = it }, label = { Text("Stok") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp))
-                        // Unit Dropdown
                         Box(Modifier.weight(1f).padding(top=8.dp)) {
                             OutlinedTextField(
                                 value = selectedUnit, onValueChange = {}, readOnly = true, label = { Text("Satuan") },
@@ -548,7 +530,6 @@ fun ProductEntryDialog(
 
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        // Category Dropdown
                         Box(Modifier.weight(1f)) {
                             OutlinedTextField(
                                 value = selectedCategory, onValueChange = {}, readOnly = true, label = { Text("Kategori") },
@@ -560,18 +541,10 @@ fun ProductEntryDialog(
                                 categories.forEach { cat -> DropdownMenuItem(text = { Text(cat.name) }, onClick = { selectedCategory = cat.name; expandCat = false }) }
                             }
                         }
-
-                        // Expired Date dengan Tombol Hapus (X)
                         OutlinedTextField(
                             value = if (expireDate > 0) SimpleDateFormat("dd/MM/yy").format(Date(expireDate)) else "",
                             onValueChange = {}, readOnly = true, label = { Text("Expired") },
-                            trailingIcon = {
-                                if (expireDate > 0) {
-                                    IconButton(onClick = { expireDate = 0L }) { Icon(Icons.Default.Close, null, tint = Color.Red) }
-                                } else {
-                                    IconButton(onClick = { datePickerDialog.show() }) { Icon(Icons.Default.DateRange, null) }
-                                }
-                            },
+                            trailingIcon = { if (expireDate > 0) IconButton(onClick = { expireDate = 0L }) { Icon(Icons.Default.Close, null, tint = Color.Red) } else IconButton(onClick = { datePickerDialog.show() }) { Icon(Icons.Default.DateRange, null) } },
                             modifier = Modifier.weight(1f).clickable { datePickerDialog.show() }, shape = RoundedCornerShape(8.dp)
                         )
                     }
@@ -590,7 +563,6 @@ fun ProductEntryDialog(
                     Spacer(Modifier.height(16.dp))
                 }
 
-                // 3. FOOTER (STICKY BUTTONS) - Selalu terlihat di bawah
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                     TextButton(onClick = onDismiss) { Text("Batal") }
@@ -599,26 +571,17 @@ fun ProductEntryDialog(
                         if (name.isNotEmpty() && sellPrice.isNotEmpty()) {
                             val currentId = product?.id ?: 0
                             val isDuplicate = barcode.isNotEmpty() && existingProducts.any { it.barcode == barcode && it.id != currentId }
-
                             if (isDuplicate) {
                                 Toast.makeText(context, "GAGAL: Barcode sudah digunakan!", Toast.LENGTH_LONG).show()
                             } else {
                                 val p = product?.copy(
-                                    name = name, barcode = barcode,
-                                    buyPrice = cleanInput(buyPrice), sellPrice = cleanInput(sellPrice),
-                                    stock = stock.toDoubleOrNull() ?: 0.0,
-                                    unit = selectedUnit.ifEmpty { "Pcs" }, category = selectedCategory.ifEmpty { "Umum" },
-                                    expireDate = expireDate, description = description,
-                                    wholesaleQty = if(isWholesale) wholesaleMinQty.toDoubleOrNull()?:0.0 else 0.0,
-                                    wholesalePrice = if(isWholesale) cleanInput(wholesalePrice) else 0.0
+                                    name = name, barcode = barcode, buyPrice = cleanInput(buyPrice), sellPrice = cleanInput(sellPrice), stock = stock.toDoubleOrNull() ?: 0.0,
+                                    unit = selectedUnit.ifEmpty { "Pcs" }, category = selectedCategory.ifEmpty { "Umum" }, expireDate = expireDate, description = description,
+                                    wholesaleQty = if(isWholesale) wholesaleMinQty.toDoubleOrNull()?:0.0 else 0.0, wholesalePrice = if(isWholesale) cleanInput(wholesalePrice) else 0.0
                                 ) ?: Product(
-                                    name = name, barcode = if(barcode.isEmpty()) System.currentTimeMillis().toString() else barcode,
-                                    buyPrice = cleanInput(buyPrice), sellPrice = cleanInput(sellPrice),
-                                    stock = stock.toDoubleOrNull() ?: 0.0,
-                                    unit = selectedUnit.ifEmpty { "Pcs" }, category = selectedCategory.ifEmpty { "Umum" },
-                                    expireDate = expireDate, description = description,
-                                    wholesaleQty = if(isWholesale) wholesaleMinQty.toDoubleOrNull()?:0.0 else 0.0,
-                                    wholesalePrice = if(isWholesale) cleanInput(wholesalePrice) else 0.0
+                                    name = name, barcode = if(barcode.isEmpty()) System.currentTimeMillis().toString() else barcode, buyPrice = cleanInput(buyPrice), sellPrice = cleanInput(sellPrice),
+                                    stock = stock.toDoubleOrNull() ?: 0.0, unit = selectedUnit.ifEmpty { "Pcs" }, category = selectedCategory.ifEmpty { "Umum" }, expireDate = expireDate, description = description,
+                                    wholesaleQty = if(isWholesale) wholesaleMinQty.toDoubleOrNull()?:0.0 else 0.0, wholesalePrice = if(isWholesale) cleanInput(wholesalePrice) else 0.0
                                 )
                                 onSave(p, selectedImageUri)
                             }
@@ -629,7 +592,6 @@ fun ProductEntryDialog(
         }
     }
 
-    // Helper Dialogs
     if (showQuickCat) {
         AlertDialog(onDismissRequest = { showQuickCat = false }, title = { Text("Tambah Kategori") }, text = { OutlinedTextField(value = newText, onValueChange = { newText = it }, singleLine = true) }, confirmButton = { Button(onClick = { if (newText.isNotEmpty()) { onAddCategory(newText); selectedCategory = newText; showQuickCat = false } }) { Text("Simpan") } })
     }
@@ -642,10 +604,17 @@ fun ProductEntryDialog(
             title = { Text("Pilih Gambar") },
             text = {
                 Column {
+                    // OPSI KAMERA YANG DIPERBAIKI
                     ListItem(headlineContent = { Text("Kamera") }, leadingContent = { Icon(Icons.Default.CameraAlt, null) }, modifier = Modifier.clickable {
-                        cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                        val uri = createImageUri(context); tempCameraUri = uri; cameraLauncher.launch(uri); showImageSourceDialog = false
+                        // Cek izin dulu
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                            launchCamera() // Kalau sudah ada izin, langsung buka kamera
+                        } else {
+                            cameraPermissionLauncher.launch(Manifest.permission.CAMERA) // Kalau belum, minta izin
+                        }
+                        showImageSourceDialog = false
                     })
+                    // OPSI GALERI
                     ListItem(headlineContent = { Text("Galeri") }, leadingContent = { Icon(Icons.Default.Image, null) }, modifier = Modifier.clickable {
                         galleryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)); showImageSourceDialog = false
                     })

@@ -18,8 +18,9 @@ interface AppContainer {
 
 class AppDataContainer(private val context: Context) : AppContainer {
 
-    private val database: InventoryDatabase by lazy {
-        InventoryDatabase.getDatabase(context)
+    // PERBAIKAN: Gunakan AppDatabase, bukan InventoryDatabase
+    private val database: AppDatabase by lazy {
+        AppDatabase.getDatabase(context)
     }
 
     override val productDao: ProductDao by lazy { database.productDao() }
@@ -31,7 +32,6 @@ class AppDataContainer(private val context: Context) : AppContainer {
     override val saleDao: SaleDao by lazy { database.saleDao() }
     override val expenseDao: ExpenseDao by lazy { database.expenseDao() }
 
-    // FIX: Memanggil konstruktor dengan 2 parameter
     override val backupRepository: BackupRepository by lazy {
         BackupRepository(context, database)
     }

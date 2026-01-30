@@ -82,4 +82,6 @@ dependencies {
 
     // Google ML Kit untuk Barcode
     implementation("com.google.mlkit:barcode-scanning:17.2.0")
+
+    implementation("com.google.code.gson:gson:2.10.1")
 }

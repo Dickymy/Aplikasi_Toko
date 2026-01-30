@@ -10,33 +10,41 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke // <--- SANGAT PENTING: Import ini wajib ada!
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.aplikasitokosembakoarkhan.utils.SecurityHelper
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+// --- IMPORT STATUS BACKUP (INI YANG TADI KURANG) ---
+import com.example.aplikasitokosembakoarkhan.data.repository.BackupStatus
+
 
 @Composable
 fun SettingsScreen(
@@ -51,14 +59,13 @@ fun SettingsScreen(
     when (currentSection) {
         "menu" -> SettingsMenuContent(onNavigate = { section -> currentSection = section })
         "receipt" -> ReceiptSettingsContent(viewModel) { currentSection = "menu" }
-        "printer" -> PrinterSettingsContent(viewModel) { currentSection = "menu" } // HALAMAN BARU
+        "printer" -> PrinterSettingsContent(viewModel) { currentSection = "menu" }
         "backup" -> BackupSettingsContent(viewModel) { currentSection = "menu" }
         "security" -> SecuritySettingsContent(viewModel) { currentSection = "menu" }
         "about" -> AboutSectionContent(onBack = { currentSection = "menu" })
     }
 }
 
-// --- HELPER FUNGSI RESTART APLIKASI ---
 fun restartApp(context: Context) {
     val packageManager = context.packageManager
     val intent = packageManager.getLaunchIntentForPackage(context.packageName)
@@ -74,7 +81,7 @@ fun SettingsMenuContent(onNavigate: (String) -> Unit) {
         Text("Pengaturan", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(24.dp))
 
-        SettingsItemRow("Koneksi Printer", "Sambungkan printer thermal bluetooth", Icons.Default.Print) { onNavigate("printer") } // MENU BARU
+        SettingsItemRow("Koneksi Printer", "Sambungkan printer thermal bluetooth", Icons.Default.Print) { onNavigate("printer") }
         SettingsItemRow("Identitas Toko & Struk", "Atur nama toko, alamat, dan footer", Icons.AutoMirrored.Filled.ReceiptLong) { onNavigate("receipt") }
         SettingsItemRow("Backup & Restore", "Amankan data database & gambar", Icons.Default.Backup) { onNavigate("backup") }
         SettingsItemRow("Keamanan (PIN)", "Atur kunci & menu yang dilindungi", Icons.Default.Lock) { onNavigate("security") }
@@ -96,154 +103,29 @@ fun SettingsItemRow(title: String, subtitle: String, icon: ImageVector, onClick:
     }
 }
 
-// --- HALAMAN PENGATURAN PRINTER (BARU) ---
-@Composable
-fun PrinterSettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
-    val context = LocalContext.current
-    val currentPrinter by viewModel.selectedPrinter.collectAsState()
-    var pairedDevices by remember { mutableStateOf<List<BluetoothDevice>>(emptyList()) }
-    var hasPermission by remember { mutableStateOf(false) }
-
-    // Launcher Izin Bluetooth
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val granted = permissions.entries.all { it.value }
-        hasPermission = granted
-        if (granted) {
-            pairedDevices = viewModel.getPairedDevices()
-        } else {
-            Toast.makeText(context, "Izin Bluetooth Diperlukan", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    LaunchedEffect(Unit) {
-        // Cek Izin saat dibuka
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
-                hasPermission = true
-                pairedDevices = viewModel.getPairedDevices()
-            } else {
-                permissionLauncher.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN))
-            }
-        } else {
-            hasPermission = true
-            pairedDevices = viewModel.getPairedDevices()
-        }
-    }
-
-    Scaffold(topBar = { SettingsHeader("Koneksi Printer", onBack) }) { p ->
-        Column(modifier = Modifier.padding(p).padding(16.dp)) {
-
-            // Info Header
-            Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)), modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Cara Menghubungkan:", fontWeight = FontWeight.Bold)
-                    Text("1. Hidupkan Printer Thermal Bluetooth.", fontSize = 12.sp)
-                    Text("2. Buka Pengaturan Bluetooth HP -> Pasangkan (Pair) dengan Printer.", fontSize = 12.sp)
-                    Text("3. Kembali ke sini, lalu pilih nama printer dari daftar di bawah.", fontSize = 12.sp)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            if (!hasPermission) {
-                Button(onClick = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        permissionLauncher.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN))
-                    }
-                }) { Text("Izinkan Akses Bluetooth") }
-            } else {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
-                    Text("Perangkat Terpasang:", fontWeight = FontWeight.Bold)
-                    IconButton(onClick = { pairedDevices = viewModel.getPairedDevices(); Toast.makeText(context, "Daftar disegarkan", Toast.LENGTH_SHORT).show() }) {
-                        Icon(Icons.Default.Refresh, "Refresh")
-                    }
-                }
-
-                LazyColumn {
-                    if (pairedDevices.isEmpty()) {
-                        item { Text("Tidak ada perangkat bluetooth yang terpasang.", color = Color.Gray, modifier = Modifier.padding(top = 8.dp)) }
-                    } else {
-                        items(pairedDevices) { device ->
-                            val isSelected = device.address == currentPrinter
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp)
-                                    .clickable {
-                                        viewModel.savePrinter(device.address)
-                                        Toast.makeText(context, "Printer Dipilih: ${device.name}", Toast.LENGTH_SHORT).show()
-                                    },
-                                colors = CardDefaults.cardColors(containerColor = if(isSelected) Color(0xFFC8E6C9) else Color.White),
-                                border = if(isSelected) null else androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(Icons.Default.Print, null, tint = if(isSelected) Color(0xFF2E7D32) else Color.Gray)
-                                    Spacer(modifier = Modifier.width(16.dp))
-                                    Column {
-                                        // PENTING: Permission check sebelum akses .name
-                                        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
-                                            Text(device.name ?: "Unknown Device", fontWeight = FontWeight.Bold)
-                                            Text(device.address, fontSize = 12.sp, color = Color.Gray)
-                                        } else {
-                                            Text("Perangkat (Izin Ditolak)")
-                                        }
-                                    }
-                                    if (isSelected) {
-                                        Spacer(modifier = Modifier.weight(1f))
-                                        Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2E7D32))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // TOMBOL TEST PRINT
-                Button(
-                    onClick = { viewModel.testPrint(context) },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = currentPrinter.isNotEmpty(),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
-                ) {
-                    Icon(Icons.Default.Print, null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Tes Cetak Struk")
-                }
-            }
-        }
-    }
-}
-
-// --- BAGIAN LAIN TETAP SAMA (SECURITY, RECEIPT, DLL) ---
-// (Pastikan Anda tetap menyertakan fungsi SecuritySettingsContent, ReceiptSettingsContent, dll yang ada di file sebelumnya)
-
+// --- FITUR KEAMANAN (RE-DESIGNED) ---
 @Composable
 fun SecuritySettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
-    var isPinSet by remember { mutableStateOf(viewModel.isPinSet()) }
-    var pinInput by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val isPinSet by remember { mutableStateOf(viewModel.isPinSet()) }
+
+    // State untuk pembuatan PIN Baru
+    var creationStep by remember { mutableStateOf(if (isPinSet) 2 else 0) } // 0: Input Awal, 1: Konfirmasi, 2: Sudah Set
+    var firstPinInput by remember { mutableStateOf("") }
+    var confirmPinInput by remember { mutableStateOf("") }
+    var errorMsg by remember { mutableStateOf("") }
 
     val originalLockedMenus by viewModel.lockedMenus.collectAsState()
     val tempLockedMenus = remember { mutableStateListOf<String>() }
-
+    var hasChanges by remember { mutableStateOf(false) }
     var showRestartDialog by remember { mutableStateOf(false) }
-    var showPinCreateDialog by remember { mutableStateOf(false) }
-    var showPinDeleteDialog by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
-    val context = LocalContext.current
-
+    // Init menus
     LaunchedEffect(originalLockedMenus) {
         tempLockedMenus.clear()
         tempLockedMenus.addAll(originalLockedMenus)
-        if (!tempLockedMenus.contains("settings")) {
-            tempLockedMenus.add("settings")
-        }
+        if (!tempLockedMenus.contains("settings")) tempLockedMenus.add("settings")
     }
 
     val menuOptions = remember {
@@ -262,133 +144,450 @@ fun SecuritySettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
     }
 
     Scaffold(topBar = { SettingsHeader("Keamanan (PIN)", onBack) }) { p ->
-        LazyColumn(modifier = Modifier.padding(p).padding(16.dp)) {
-            item {
-                if (isPinSet) {
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)), modifier = Modifier.fillMaxWidth()) {
-                        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2E7D32))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Aplikasi dilindungi PIN", color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(
-                        onClick = { showPinDeleteDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red), modifier = Modifier.fillMaxWidth()
-                    ) { Text("Hapus PIN") }
+        Column(modifier = Modifier.padding(p).fillMaxSize()) {
 
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 16.dp))
+            if (creationStep < 2) {
+                // --- TAMPILAN BUAT PIN BARU (ATM STYLE) ---
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(Icons.Default.Security, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(16.dp))
 
-                    Text("Pilih Menu yang Dikunci:", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text("Centang menu, lalu tekan tombol Simpan di bawah.", fontSize = 12.sp, color = Color.Gray)
-                    Spacer(modifier = Modifier.height(8.dp))
-                } else {
-                    Text("Pasang PIN Baru (6 Digit):")
-                    OutlinedTextField(
-                        value = pinInput, onValueChange = { if (it.length <= 6 && it.all { c -> c.isDigit() }) pinInput = it },
-                        visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        modifier = Modifier.fillMaxWidth()
+                    Text(
+                        text = if (creationStep == 0) "Buat PIN Baru" else "Konfirmasi PIN",
+                        style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Button(
-                        onClick = { if (pinInput.length >= 4) showPinCreateDialog = true else Toast.makeText(context, "Minimal 4 digit", Toast.LENGTH_SHORT).show() },
-                        modifier = Modifier.fillMaxWidth(), enabled = pinInput.length >= 4
-                    ) { Text("Simpan PIN") }
-                }
-            }
+                    Text(
+                        text = if (creationStep == 0) "Masukkan 6 angka PIN keamanan" else "Masukkan ulang 6 angka yang sama",
+                        color = Color.Gray, fontSize = 14.sp
+                    )
 
-            if (isPinSet) {
-                items(menuOptions) { (route, name) ->
-                    val isMandatory = route == "settings"
-                    val isChecked = if (isMandatory) true else tempLockedMenus.contains(route)
+                    Spacer(Modifier.height(32.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth().clickable(enabled = !isMandatory) { if (isChecked) tempLockedMenus.remove(route) else tempLockedMenus.add(route) }.padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(checked = isChecked, onCheckedChange = { checked -> if (!isMandatory) { if (checked) tempLockedMenus.add(route) else tempLockedMenus.remove(route) } }, enabled = !isMandatory)
-                        Column {
-                            Text(name, fontWeight = if(isMandatory) FontWeight.Bold else FontWeight.Normal)
-                            if (isMandatory) Text("(Wajib dikunci)", fontSize = 10.sp, color = Color.Gray)
+                    // Dots Visualizer
+                    val currentInput = if (creationStep == 0) firstPinInput else confirmPinInput
+                    Row(horizontalArrangement = Arrangement.Center, modifier = Modifier.fillMaxWidth()) {
+                        repeat(6) { i ->
+                            Box(
+                                modifier = Modifier
+                                    .padding(8.dp)
+                                    .size(20.dp)
+                                    .background(
+                                        color = if (i < currentInput.length) MaterialTheme.colorScheme.primary else Color.LightGray.copy(alpha = 0.3f),
+                                        shape = CircleShape
+                                    )
+                                    .border(1.dp, if (i < currentInput.length) MaterialTheme.colorScheme.primary else Color.Gray, CircleShape)
+                            )
                         }
                     }
+
+                    if (errorMsg.isNotEmpty()) {
+                        Spacer(Modifier.height(16.dp))
+                        Text(errorMsg, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                    }
+
+                    Spacer(Modifier.height(32.dp))
+
+                    // Custom Keypad
+                    CustomNumericKeypad(
+                        onNumberClick = { num ->
+                            if (creationStep == 0) {
+                                if (firstPinInput.length < 6) {
+                                    firstPinInput += num
+                                    errorMsg = ""
+                                    if (firstPinInput.length == 6) {
+                                        creationStep = 1 // Pindah ke konfirmasi
+                                    }
+                                }
+                            } else {
+                                if (confirmPinInput.length < 6) {
+                                    confirmPinInput += num
+                                    errorMsg = ""
+                                    if (confirmPinInput.length == 6) {
+                                        // Cek Validasi
+                                        if (firstPinInput == confirmPinInput) {
+                                            viewModel.setPin(firstPinInput)
+                                            showRestartDialog = true
+                                        } else {
+                                            errorMsg = "PIN tidak sama! Ulangi."
+                                            confirmPinInput = ""
+                                            firstPinInput = "" // Reset semua biar aman
+                                            creationStep = 0
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        onDeleteClick = {
+                            if (creationStep == 0) {
+                                if (firstPinInput.isNotEmpty()) firstPinInput = firstPinInput.dropLast(1)
+                            } else {
+                                if (confirmPinInput.isNotEmpty()) confirmPinInput = confirmPinInput.dropLast(1)
+                            }
+                            errorMsg = ""
+                        }
+                    )
                 }
 
-                item {
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(
-                        onClick = {
-                            val finalSet = tempLockedMenus.toSet() + "settings"
-                            viewModel.updateLockedMenus(finalSet)
-                            showRestartDialog = true
-                        },
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
-                        shape = RoundedCornerShape(8.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
-                    ) {
-                        Icon(Icons.Default.Save, null); Spacer(modifier = Modifier.width(8.dp)); Text("SIMPAN & TERAPKAN", fontWeight = FontWeight.Bold)
+            } else {
+                // --- TAMPILAN PENGATURAN SETELAH PIN AKTIF ---
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    item {
+                        // Header Status
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Box(modifier = Modifier.size(40.dp).background(Color(0xFFC8E6C9), CircleShape), contentAlignment = Alignment.Center) {
+                                    Icon(Icons.Default.Shield, null, tint = Color(0xFF2E7D32))
+                                }
+                                Spacer(modifier = Modifier.width(16.dp))
+                                Column {
+                                    Text("Perlindungan Aktif", color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                                    Text("Aplikasi dilindungi PIN 6 digit", color = Color(0xFF1B5E20), fontSize = 12.sp)
+                                }
+                            }
+                        }
+
+                        // Tombol Hapus PIN
+                        Button(
+                            onClick = { showDeleteDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFEBEE), contentColor = Color(0xFFD32F2F)),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                            shape = RoundedCornerShape(8.dp),
+                            elevation = ButtonDefaults.buttonElevation(0.dp)
+                        ) {
+                            Icon(Icons.Default.Delete, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Nonaktifkan / Hapus PIN")
+                        }
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 24.dp), thickness = 8.dp, color = Color.Gray.copy(alpha = 0.1f))
+
+                        Text("Kunci Menu Aplikasi", modifier = Modifier.padding(horizontal = 16.dp), fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                        Text("Pilih menu yang memerlukan PIN saat diakses:", modifier = Modifier.padding(horizontal = 16.dp), color = Color.Gray, fontSize = 12.sp)
+                        Spacer(Modifier.height(16.dp))
                     }
-                    Spacer(modifier = Modifier.height(32.dp))
+
+                    items(menuOptions) { (route, name) ->
+                        val isMandatory = route == "settings"
+                        val isChecked = if (isMandatory) true else tempLockedMenus.contains(route)
+
+                        ListItem(
+                            headlineContent = { Text(name, fontWeight = if(isMandatory) FontWeight.Bold else FontWeight.Normal) },
+                            supportingContent = if (isMandatory) { { Text("Wajib dikunci demi keamanan", color = Color.Red, fontSize = 11.sp) } } else null,
+                            trailingContent = {
+                                Switch(
+                                    checked = isChecked,
+                                    onCheckedChange = { checked ->
+                                        if (!isMandatory) {
+                                            if (checked) tempLockedMenus.add(route) else tempLockedMenus.remove(route)
+                                            hasChanges = true
+                                        }
+                                    },
+                                    enabled = !isMandatory,
+                                    colors = SwitchDefaults.colors(checkedThumbColor = Color.White, checkedTrackColor = MaterialTheme.colorScheme.primary)
+                                )
+                            },
+                            modifier = Modifier.clickable(enabled = !isMandatory) {
+                                if (!isMandatory) {
+                                    if (isChecked) tempLockedMenus.remove(route) else tempLockedMenus.add(route)
+                                    hasChanges = true
+                                }
+                            }
+                        )
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp), color = Color.LightGray.copy(alpha = 0.3f))
+                    }
+
+                    item {
+                        Spacer(Modifier.height(24.dp))
+                        Button(
+                            onClick = {
+                                val finalSet = tempLockedMenus.toSet() + "settings"
+                                viewModel.updateLockedMenus(finalSet)
+                                showRestartDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(16.dp).height(50.dp),
+                            enabled = hasChanges,
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("SIMPAN PERUBAHAN")
+                        }
+                        Spacer(Modifier.height(32.dp))
+                    }
                 }
             }
         }
     }
 
+    // Dialogs
     if (showRestartDialog) {
         AlertDialog(
-            onDismissRequest = { },
-            title = { Text("Pengaturan Disimpan") },
-            text = { Text("Aplikasi akan dimuat ulang untuk menerapkan perubahan keamanan.\n\nKlik OK untuk melanjutkan.") },
-            confirmButton = { Button(onClick = { restartApp(context) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))) { Text("OK, Restart Sekarang") } }
+            onDismissRequest = {},
+            icon = { Icon(Icons.Default.Refresh, null) },
+            title = { Text("Restart Diperlukan") },
+            text = { Text("Pengaturan keamanan telah disimpan. Aplikasi akan dimuat ulang untuk menerapkan perubahan.") },
+            confirmButton = { Button(onClick = { restartApp(context) }) { Text("OK, Restart Sekarang") } },
+            properties = androidx.compose.ui.window.DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false)
         )
     }
 
-    if (showPinCreateDialog) {
+    if (showDeleteDialog) {
         AlertDialog(
-            onDismissRequest = { showPinCreateDialog = false },
-            title = { Text("Aktifkan Keamanan PIN?") },
-            text = { Text("Setelah PIN aktif, Anda dapat mengunci halaman penting.\n\nAplikasi akan di-restart untuk mengaktifkan sistem keamanan ini.") },
-            confirmButton = { Button(onClick = { viewModel.setPin(pinInput); restartApp(context) }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))) { Text("Ya, Simpan & Restart") } },
-            dismissButton = { TextButton(onClick = { showPinCreateDialog = false }) { Text("Batal") } }
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Hapus Keamanan?") },
+            text = { Text("Semua kunci halaman akan dibuka. Siapapun dapat mengakses menu pengaturan dan laporan.") },
+            confirmButton = { Button(onClick = { viewModel.removePin(); restartApp(context) }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("Hapus & Restart") } },
+            dismissButton = { TextButton(onClick = { showDeleteDialog = false }) { Text("Batal") } }
         )
     }
+}
 
-    if (showPinDeleteDialog) {
-        AlertDialog(
-            onDismissRequest = { showPinDeleteDialog = false },
-            title = { Text("Hapus PIN Keamanan?") },
-            text = { Text("PERINGATAN: Menghapus PIN akan membuka semua kunci halaman.\n\nAplikasi akan di-restart setelah PIN dihapus.") },
-            confirmButton = { Button(onClick = { viewModel.removePin(); restartApp(context) }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("Ya, Hapus & Restart") } },
-            dismissButton = { TextButton(onClick = { showPinDeleteDialog = false }) { Text("Batal") } }
-        )
+// --- REUSABLE KEYPAD COMPONENT ---
+@Composable
+fun CustomNumericKeypad(onNumberClick: (String) -> Unit, onDeleteClick: () -> Unit) {
+    val keys = listOf(
+        listOf("1", "2", "3"),
+        listOf("4", "5", "6"),
+        listOf("7", "8", "9"),
+        listOf("", "0", "del")
+    )
+
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        keys.forEach { row ->
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                row.forEach { key ->
+                    if (key.isEmpty()) {
+                        Spacer(modifier = Modifier.size(72.dp))
+                    } else if (key == "del") {
+                        IconButton(onClick = onDeleteClick, modifier = Modifier.size(72.dp)) {
+                            Icon(Icons.AutoMirrored.Filled.Backspace, null, modifier = Modifier.size(28.dp), tint = MaterialTheme.colorScheme.onSurface)
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(72.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .clickable { onNumberClick(key) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(key, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// --- PRINTER SETTINGS (FIXED) ---
+
+@Composable
+fun PrinterSettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val currentPrinter by viewModel.selectedPrinter.collectAsState()
+    val currentPaperSize by viewModel.paperSize.collectAsState()
+
+    var pairedDevices by remember { mutableStateOf<List<BluetoothDevice>>(emptyList()) }
+    var hasPermission by remember { mutableStateOf(false) }
+    var isTestingConnection by remember { mutableStateOf(false) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions.entries.all { it.value }
+        hasPermission = granted
+        if (granted) pairedDevices = viewModel.getPairedDevices()
+    }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                hasPermission = true
+                pairedDevices = viewModel.getPairedDevices()
+            } else {
+                permissionLauncher.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN))
+            }
+        } else {
+            hasPermission = true
+            pairedDevices = viewModel.getPairedDevices()
+        }
+    }
+
+    Scaffold(
+        topBar = { SettingsHeader("Koneksi Printer", onBack) },
+        containerColor = Color(0xFFF5F5F5)
+    ) { p ->
+        Column(modifier = Modifier.padding(p).padding(16.dp)) {
+
+            // 1. STATUS CARD
+            Card(
+                colors = CardDefaults.cardColors(containerColor = if(currentPrinter.isNotEmpty()) Color(0xFFE8F5E9) else Color(0xFFFFEBEE)),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if(currentPrinter.isNotEmpty()) Icons.Default.CheckCircle else Icons.Default.Error,
+                            contentDescription = null,
+                            tint = if(currentPrinter.isNotEmpty()) Color(0xFF2E7D32) else Color(0xFFC62828)
+                        )
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                text = if(currentPrinter.isNotEmpty()) "Printer Dipilih" else "Belum Ada Printer",
+                                fontWeight = FontWeight.Bold,
+                                color = if(currentPrinter.isNotEmpty()) Color(0xFF2E7D32) else Color(0xFFC62828)
+                            )
+                            if(currentPrinter.isNotEmpty()) {
+                                Text(currentPrinter, fontSize = 12.sp, color = Color.Gray)
+                            }
+                        }
+                    }
+
+                    if (currentPrinter.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = {
+                                isTestingConnection = true
+                                viewModel.testConnection(context,
+                                    onSuccess = { isTestingConnection = false; Toast.makeText(context, "Koneksi OK! Printer Siap.", Toast.LENGTH_SHORT).show() },
+                                    onError = { isTestingConnection = false; Toast.makeText(context, "Gagal Terhubung! Cek nyala printer.", Toast.LENGTH_LONG).show() }
+                                )
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF2E7D32)),
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = !isTestingConnection
+                        ) {
+                            if (isTestingConnection) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                Spacer(Modifier.width(8.dp))
+                                Text("Mengecek...")
+                            } else {
+                                Icon(Icons.Default.Wifi, null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("Cek Status Koneksi")
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 2. PENGATURAN KERTAS
+            Text("Ukuran Kertas Struk", fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(bottom = 8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = currentPaperSize == 58,
+                    onClick = { viewModel.setPaperSize(58) },
+                    label = { Text("58mm (Standar)") },
+                    leadingIcon = if (currentPaperSize == 58) { { Icon(Icons.Default.Check, null) } } else null
+                )
+                FilterChip(
+                    selected = currentPaperSize == 80,
+                    onClick = { viewModel.setPaperSize(80) },
+                    label = { Text("80mm (Lebar)") },
+                    leadingIcon = if (currentPaperSize == 80) { { Icon(Icons.Default.Check, null) } } else null
+                )
+            }
+            Text("Pilih 58mm untuk printer bluetooth kecil, 80mm untuk printer kasir besar.", fontSize = 11.sp, color = Color.Gray)
+
+            Spacer(Modifier.height(24.dp))
+
+            // 3. DAFTAR PERANGKAT
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
+                Text("Pilih Printer Bluetooth:", fontWeight = FontWeight.Bold)
+                IconButton(onClick = { pairedDevices = viewModel.getPairedDevices(); Toast.makeText(context, "Daftar disegarkan", Toast.LENGTH_SHORT).show() }) {
+                    Icon(Icons.Default.Refresh, "Refresh")
+                }
+            }
+
+            if (!hasPermission) {
+                Button(onClick = { if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) permissionLauncher.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)) }) { Text("Izinkan Akses Bluetooth") }
+            } else {
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    if (pairedDevices.isEmpty()) {
+                        item {
+                            Box(modifier = Modifier.fillMaxWidth().padding(20.dp), contentAlignment = Alignment.Center) {
+                                Text("Tidak ada perangkat yang dipasangkan.\nBuka Pengaturan Bluetooth HP Anda dulu.", textAlign = TextAlign.Center, color = Color.Gray)
+                            }
+                            Button(onClick = {
+                                try { context.startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS)) }
+                                catch (e: Exception) { Toast.makeText(context, "Buka Pengaturan Manual", Toast.LENGTH_SHORT).show() }
+                            }, modifier = Modifier.fillMaxWidth()) { Text("Buka Pengaturan Bluetooth HP") }
+                        }
+                    } else {
+                        items(pairedDevices) { device ->
+                            val isSelected = device.address == currentPrinter
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp)
+                                    .clickable {
+                                        viewModel.savePrinter(device.address)
+                                        Toast.makeText(context, "Printer Dipilih", Toast.LENGTH_SHORT).show()
+                                    },
+                                colors = CardDefaults.cardColors(containerColor = if(isSelected) Color(0xFFC8E6C9) else Color.White),
+                                border = if(isSelected) BorderStroke(2.dp, Color(0xFF2E7D32)) else null
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Print, null, tint = if(isSelected) Color(0xFF2E7D32) else Color.Gray)
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    Column {
+                                        if (ActivityCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
+                                            Text(device.name ?: "Unknown Device", fontWeight = FontWeight.Bold)
+                                            Text(device.address, fontSize = 12.sp, color = Color.Gray)
+                                        } else {
+                                            Text("Perangkat (Nama Tersembunyi)")
+                                        }
+                                    }
+                                    if (isSelected) {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                        Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2E7D32))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // 4. TOMBOL TEST PRINT
+                Button(
+                    onClick = { viewModel.testPrint(context) },
+                    modifier = Modifier.fillMaxWidth().height(50.dp),
+                    enabled = currentPrinter.isNotEmpty(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1976D2))
+                ) {
+                    Icon(Icons.Default.Print, null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Test Print Struk Sampel")
+                }
+            }
+        }
     }
 }
 
 @Composable
 fun AboutSectionContent(onBack: () -> Unit) {
     Scaffold(topBar = { SettingsHeader("Tentang Aplikasi", onBack) }) { p ->
-        Column(
-            modifier = Modifier.padding(p).fillMaxSize().padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(100.dp)) {
-                Box(contentAlignment = Alignment.Center) { Icon(Icons.Default.Store, null, modifier = Modifier.size(50.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer) }
-            }
-            Spacer(modifier = Modifier.height(24.dp))
-            Text("Aplikasi Toko Sembako Arkhan", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("Versi 1.0", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
-            Spacer(modifier = Modifier.height(32.dp))
-            Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD))) {
-                Column(modifier = Modifier.padding(24.dp).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Dikembangkan oleh:", fontSize = 12.sp, color = Color.Gray)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("Dicky Muhammad Yahya", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1565C0))
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-            Text("© 2024 Hak Cipta Dilindungi", fontSize = 10.sp, color = Color.LightGray)
+        Column(modifier = Modifier.padding(p).fillMaxSize().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Icon(Icons.Default.Store, null, modifier = Modifier.size(80.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(Modifier.height(16.dp))
+            Text("Toko Arkhan", fontWeight = FontWeight.Bold, fontSize = 24.sp)
+            Text("Versi 1.0", color = Color.Gray)
+            Spacer(Modifier.height(32.dp))
+            Text("Dibuat oleh Dicky Muhammad Yahya", fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -404,11 +603,12 @@ fun ReceiptSettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
 
     Scaffold(topBar = { SettingsHeader("Pengaturan Struk", onBack) }) { p ->
         Column(modifier = Modifier.padding(p).padding(16.dp)) {
-            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nama Toko") }, modifier = Modifier.fillMaxWidth()); Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text("Alamat Toko") }, modifier = Modifier.fillMaxWidth()); Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("No. HP") }, modifier = Modifier.fillMaxWidth()); Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(value = footer, onValueChange = { footer = it }, label = { Text("Footer Struk") }, modifier = Modifier.fillMaxWidth()); Spacer(modifier = Modifier.height(24.dp))
-            Button(onClick = { viewModel.saveStoreProfile(name, address, phone, footer); Toast.makeText(context, "Disimpan!", Toast.LENGTH_SHORT).show(); onBack() }, modifier = Modifier.fillMaxWidth()) { Text("SIMPAN") }
+            OutlinedTextField(value = name, onValueChange = { name = it }, label = { Text("Nama Toko") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = address, onValueChange = { address = it }, label = { Text("Alamat") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = phone, onValueChange = { phone = it }, label = { Text("No. HP") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(value = footer, onValueChange = { footer = it }, label = { Text("Footer") }, modifier = Modifier.fillMaxWidth())
+            Spacer(Modifier.height(16.dp))
+            Button(onClick = { viewModel.saveStoreProfile(name, address, phone, footer); Toast.makeText(context, "Disimpan", Toast.LENGTH_SHORT).show(); onBack() }, modifier = Modifier.fillMaxWidth()) { Text("Simpan") }
         }
     }
 }
@@ -416,16 +616,132 @@ fun ReceiptSettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
 @Composable
 fun BackupSettingsContent(viewModel: SettingsViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
-    var isLoading by remember { mutableStateOf(false) }
-    val backupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri -> if (uri != null) { isLoading = true; viewModel.backupData(uri, { isLoading = false; Toast.makeText(context, "Sukses!", Toast.LENGTH_SHORT).show() }, { isLoading = false; Toast.makeText(context, "Gagal: $it", Toast.LENGTH_LONG).show() }) } }
-    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) { isLoading = true; viewModel.restoreData(uri, { isLoading = false; Toast.makeText(context, "Sukses! Restart App.", Toast.LENGTH_LONG).show() }, { isLoading = false; Toast.makeText(context, "Gagal: $it", Toast.LENGTH_LONG).show() }) } }
+    val lastBackup by viewModel.lastBackupTime.collectAsState()
+    val status by viewModel.backupStatus.collectAsState() // Observe status
+
+    // Handler untuk Status Sukses/Error
+    LaunchedEffect(status) {
+        when (status) {
+            is BackupStatus.Success -> {
+                val msg = (status as BackupStatus.Success).message
+                Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+                if (msg.contains("Restart")) {
+                    restartApp(context) // Auto restart kalau restore sukses
+                } else {
+                    viewModel.resetBackupStatus() // Reset kalau backup sukses biar loading hilang
+                }
+            }
+            is BackupStatus.Error -> {
+                Toast.makeText(context, (status as BackupStatus.Error).message, Toast.LENGTH_LONG).show()
+                viewModel.resetBackupStatus()
+            }
+            else -> {}
+        }
+    }
+
+    val timeStamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.getDefault()).format(Date())
+    val defaultFileName = "Backup_Toko_$timeStamp.zip"
+
+    val backupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri -> if (uri != null) viewModel.backupData(uri) }
+
+    val restoreLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri -> if (uri != null) viewModel.restoreData(uri) }
 
     Scaffold(topBar = { SettingsHeader("Backup & Restore", onBack) }) { p ->
-        Column(modifier = Modifier.padding(p).padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            if (isLoading) CircularProgressIndicator() else {
-                Button(onClick = { backupLauncher.launch("Backup_${System.currentTimeMillis()}.zip") }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Upload, null); Spacer(Modifier.width(8.dp)); Text("Backup Data") }
-                Spacer(Modifier.height(16.dp))
-                OutlinedButton(onClick = { restoreLauncher.launch(arrayOf("application/zip")) }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red)) { Icon(Icons.Default.Download, null); Spacer(Modifier.width(8.dp)); Text("Restore Data") }
+        Box(modifier = Modifier.padding(p).fillMaxSize()) {
+            Column(modifier = Modifier.padding(16.dp)) {
+
+                // HEADER INFO
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Column(Modifier.padding(20.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CloudUpload, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(32.dp))
+                            Spacer(Modifier.width(16.dp))
+                            Column {
+                                Text("Status Backup", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Text("Terakhir: $lastBackup", fontSize = 12.sp, color = Color.Gray)
+                            }
+                        }
+                        Spacer(Modifier.height(16.dp))
+                        Text("Backup menyimpan semua data database & foto produk ke dalam satu file ZIP agar mudah dipindahkan.", fontSize = 12.sp, lineHeight = 18.sp, color = Color(0xFF455A64))
+                    }
+                }
+
+                // TOMBOL BACKUP & RESTORE
+                Text("Amankan Data", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable { if(status is BackupStatus.Idle) backupLauncher.launch(defaultFileName) },
+                    colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(2.dp), border = BorderStroke(1.dp, Color(0xFFE0E0E0))
+                ) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(48.dp).background(Color(0xFFE8F5E9), CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Default.Save, null, tint = Color(0xFF2E7D32)) }
+                        Spacer(Modifier.width(16.dp))
+                        Column { Text("Buat Backup Baru", fontWeight = FontWeight.Bold); Text("Simpan data ke file .zip", fontSize = 12.sp, color = Color.Gray) }
+                        Spacer(Modifier.weight(1f)); Icon(Icons.Default.ChevronRight, null, tint = Color.LightGray)
+                    }
+                }
+
+                Spacer(Modifier.height(24.dp))
+                Text("Pulihkan Data", fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth().clickable { if(status is BackupStatus.Idle) restoreLauncher.launch(arrayOf("application/zip")) },
+                    colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(2.dp), border = BorderStroke(1.dp, Color(0xFFE0E0E0))
+                ) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(48.dp).background(Color(0xFFFFF3E0), CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Default.Restore, null, tint = Color(0xFFE65100)) }
+                        Spacer(Modifier.width(16.dp))
+                        Column { Text("Restore dari File", fontWeight = FontWeight.Bold); Text("Timpa data saat ini", fontSize = 12.sp, color = Color.Gray) }
+                        Spacer(Modifier.weight(1f)); Icon(Icons.Default.ChevronRight, null, tint = Color.LightGray)
+                    }
+                }
+            }
+
+            // --- ANIMASI LOADING PROGRESS ---
+            if (status is BackupStatus.Loading) {
+                val loadingState = status as BackupStatus.Loading
+
+                // Overlay Gelap
+                Box(
+                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.6f)).clickable(enabled = false){}, // Block sentuhan
+                    contentAlignment = Alignment.Center
+                ) {
+                    Card(
+                        modifier = Modifier.width(280.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.White)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text("Memproses Data...", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                            Spacer(Modifier.height(24.dp))
+
+                            // Indikator Loading
+                            Box(contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator(
+                                    progress = { loadingState.progress / 100f },
+                                    modifier = Modifier.size(80.dp),
+                                    strokeWidth = 6.dp,
+                                    trackColor = Color(0xFFEEEEEE),
+                                )
+                                Text("${loadingState.progress}%", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                            }
+
+                            Spacer(Modifier.height(16.dp))
+                            Text(loadingState.message, fontSize = 14.sp, color = Color.Gray, textAlign = TextAlign.Center)
+                            Spacer(Modifier.height(8.dp))
+                            Text("Mohon tunggu, jangan tutup aplikasi.", fontSize = 11.sp, color = Color.Red.copy(0.7f))
+                        }
+                    }
+                }
             }
         }
     }
