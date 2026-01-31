@@ -1,12 +1,9 @@
 package com.example.aplikasitokosembakoarkhan
 
-import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -50,9 +47,7 @@ fun MainApp() {
     val currentRoute = currentBackStackEntry?.destination?.route ?: "dashboard"
 
     // ViewModels
-    val inventoryViewModel: InventoryViewModel = viewModel(factory = AppViewModelProvider.Factory)
     val settingsViewModel: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory)
-
     val context = androidx.compose.ui.platform.LocalContext.current
 
     // --- STATE KEAMANAN ---
@@ -63,14 +58,7 @@ fun MainApp() {
     val isPinSet = SecurityHelper.isPinSet(context)
     val lockedMenus by settingsViewModel.lockedMenus.collectAsState()
 
-    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        if (uri != null) {
-            inventoryViewModel.importExcel(context, uri) { count ->
-                Toast.makeText(context, "Berhasil import $count barang", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
+    // --- DEFINISI MENU ---
     val menuGroups = listOf(
         MenuGroup("Utama", listOf(
             MenuItem("Dashboard", "dashboard", Icons.Default.Dashboard)
@@ -137,6 +125,7 @@ fun MainApp() {
                                 onClick = {
                                     scope.launch { drawerState.close() }
 
+                                    // Logika Keamanan PIN
                                     if (isPinSet && isMenuLocked && !isSessionUnlocked) {
                                         targetRoute = item.route
                                         showPinDialog = true
@@ -154,24 +143,6 @@ fun MainApp() {
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = Color.LightGray.copy(alpha = 0.5f))
                     }
 
-                    item {
-                        val isImportLocked = lockedMenus.contains("products")
-                        NavigationDrawerItem(
-                            label = { Text("Import Excel") },
-                            icon = { Icon(Icons.Default.UploadFile, null) },
-                            selected = false,
-                            onClick = {
-                                scope.launch { drawerState.close() }
-                                if (isPinSet && isImportLocked && !isSessionUnlocked) {
-                                    targetRoute = "IMPORT_EXCEL"
-                                    showPinDialog = true
-                                } else {
-                                    importLauncher.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel"))
-                                }
-                            },
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
-                        )
-                    }
                     item { Spacer(modifier = Modifier.height(24.dp)) }
                 }
             }
@@ -195,11 +166,13 @@ fun MainApp() {
                                 if (isSessionUnlocked) {
                                     isSessionUnlocked = false
                                     Toast.makeText(context, "Sesi Terkunci", Toast.LENGTH_SHORT).show()
+                                    // Jika halaman saat ini dikunci, lempar ke dashboard
                                     if (lockedMenus.contains(currentRoute)) {
                                         navController.navigate("dashboard")
                                     }
                                 } else {
-                                    targetRoute = currentRoute
+                                    // Buka kunci manual
+                                    targetRoute = currentRoute // Tetap di halaman ini
                                     showPinDialog = true
                                 }
                             }) {
@@ -216,7 +189,7 @@ fun MainApp() {
         ) { padding ->
             Box(modifier = Modifier.padding(padding)) {
                 NavHost(navController, startDestination = "dashboard") {
-                    // --- PERBAIKAN UTAMA DI SINI (Menambahkan Parameter Navigasi) ---
+
                     composable("dashboard") {
                         DashboardScreen(
                             onNavigateToSales = { navController.navigate("sales") },
@@ -224,7 +197,6 @@ fun MainApp() {
                             onNavigateToReport = { navController.navigate("report") }
                         )
                     }
-                    // ---------------------------------------------------------------
 
                     composable("sales") { SalesScreen() }
                     composable("products") { ProductScreen() }
@@ -235,12 +207,13 @@ fun MainApp() {
                     composable("report") { ReportScreen() }
                     composable("expense") { ExpenseScreen() }
                     composable("debt") { DebtScreen() }
-                    composable("settings") { SettingsScreen() }
+                    composable("settings") { SettingsScreen() } // Fitur Export/Import Excel ada di sini sekarang
                 }
             }
         }
     }
 
+    // --- DIALOG PIN ---
     if (showPinDialog) {
         PinDialog(
             onDismiss = { showPinDialog = false },
@@ -249,9 +222,7 @@ fun MainApp() {
                 isSessionUnlocked = true
                 Toast.makeText(context, "Akses Dibuka", Toast.LENGTH_SHORT).show()
 
-                if (targetRoute == "IMPORT_EXCEL") {
-                    importLauncher.launch(arrayOf("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel"))
-                } else if (targetRoute.isNotEmpty() && targetRoute != currentRoute) {
+                if (targetRoute.isNotEmpty() && targetRoute != currentRoute) {
                     navController.navigate(targetRoute) {
                         popUpTo("dashboard") { saveState = true }
                         launchSingleTop = true

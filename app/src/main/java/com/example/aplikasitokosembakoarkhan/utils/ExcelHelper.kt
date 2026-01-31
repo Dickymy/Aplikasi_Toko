@@ -3,121 +3,118 @@ package com.example.aplikasitokosembakoarkhan.utils
 import android.content.Context
 import android.net.Uri
 import com.example.aplikasitokosembakoarkhan.data.Product
-import com.example.aplikasitokosembakoarkhan.data.Sale
-import org.apache.poi.xssf.usermodel.XSSFWorkbook
-import java.io.File
-import java.io.FileOutputStream
+import java.io.BufferedReader
+import java.io.InputStreamReader
 import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import java.util.*
 
 object ExcelHelper {
 
-    fun parseExcelToProducts(context: Context, uri: Uri): List<Product> {
-        val productList = mutableListOf<Product>()
-        try {
-            context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                val workbook = XSSFWorkbook(inputStream)
-                val sheet = workbook.getSheetAt(0)
-                for (row in sheet) {
-                    if (row.rowNum == 0) continue
-                    val name = row.getCell(1)?.stringCellValue ?: ""
-                    val buyPrice = row.getCell(2)?.numericCellValue ?: 0.0
-                    val sellPrice = row.getCell(3)?.numericCellValue ?: 0.0
-                    val stock = row.getCell(4)?.numericCellValue ?: 0.0
-                    val unit = row.getCell(5)?.stringCellValue ?: "pcs"
-                    val barcode = try {
-                        row.getCell(6)?.stringCellValue ?: ""
-                    } catch (e: Exception) {
-                        row.getCell(6)?.numericCellValue?.toLong()?.toString() ?: ""
-                    }
+    // Header untuk file CSV
+    private const val CSV_HEADER = "Barcode,Nama Barang,Kategori,Satuan,Stok,Harga Beli,Harga Jual,Keterangan"
 
-                    if (name.isNotEmpty()) {
-                        productList.add(
-                            Product(
-                                name = name,
-                                buyPrice = buyPrice,
-                                sellPrice = sellPrice,
-                                stock = stock,
-                                unit = unit,
-                                barcode = barcode,
-                                expireDate = 0L,
-                                category = "Umum"
+    // --- EXPORT KE CSV ---
+    fun exportProductsToCsv(context: Context, uri: Uri, products: List<Product>): Result<Boolean> {
+        return try {
+            context.contentResolver.openOutputStream(uri)?.use { outputStream ->
+                val writer = outputStream.bufferedWriter()
+
+                // Tulis Header
+                writer.write(CSV_HEADER)
+                writer.newLine()
+
+                // Tulis Data
+                for (p in products) {
+                    val line = listOf(
+                        escapeCsv(p.barcode),
+                        escapeCsv(p.name),
+                        escapeCsv(p.category),
+                        escapeCsv(p.unit),
+                        p.stock.toString(),
+                        p.buyPrice.toString(),
+                        p.sellPrice.toString(),
+                        escapeCsv(p.description)
+                    ).joinToString(",")
+
+                    writer.write(line)
+                    writer.newLine()
+                }
+                writer.flush()
+            }
+            Result.success(true)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Result.failure(e)
+        }
+    }
+
+    // --- IMPORT DARI CSV ---
+    fun importProductsFromCsv(context: Context, uri: Uri): Result<List<Product>> {
+        return try {
+            val products = mutableListOf<Product>()
+            val inputStream = context.contentResolver.openInputStream(uri)
+                ?: return Result.failure(Exception("Gagal membuka file"))
+
+            BufferedReader(InputStreamReader(inputStream)).use { reader ->
+                var line = reader.readLine() // Baca Header dulu (skip)
+
+                while (true) {
+                    line = reader.readLine() ?: break
+                    if (line.isBlank()) continue
+
+                    // Parse CSV manual (menangani koma dalam kutip)
+                    val tokens = parseCsvLine(line)
+                    if (tokens.size >= 7) {
+                        try {
+                            val product = Product(
+                                barcode = tokens[0],
+                                name = tokens[1],
+                                category = tokens[2].ifEmpty { "Umum" },
+                                unit = tokens[3].ifEmpty { "Pcs" },
+                                stock = tokens[4].toDoubleOrNull() ?: 0.0,
+                                buyPrice = tokens[5].toDoubleOrNull() ?: 0.0,
+                                sellPrice = tokens[6].toDoubleOrNull() ?: 0.0,
+                                description = if (tokens.size > 7) tokens[7] else "",
+                                expireDate = 0L // Default
                             )
-                        )
+                            products.add(product)
+                        } catch (e: Exception) {
+                            // Skip baris yang error formatnya
+                        }
                     }
                 }
-                workbook.close()
             }
-        } catch (e: Exception) { e.printStackTrace() }
-        return productList
+            Result.success(products)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
-    // UPDATE: Mengembalikan File agar MainActivity tidak error
-    fun exportProductsToExcel(context: Context, products: List<Product>): File {
-        val workbook = XSSFWorkbook()
-        val sheet = workbook.createSheet("Stok Barang")
-        val headerRow = sheet.createRow(0)
-        val headers = listOf("ID", "Nama Barang", "Kategori", "Harga Beli", "Harga Jual", "Stok", "Satuan", "Barcode")
-
-        headers.forEachIndexed { index, title ->
-            val cell = headerRow.createCell(index)
-            cell.setCellValue(title)
+    // Fungsi bantu untuk menangani karakter koma dalam nama barang
+    private fun escapeCsv(value: String): String {
+        var result = value.replace("\"", "\"\"") // Escape double quotes
+        if (result.contains(",") || result.contains("\n") || result.contains("\"")) {
+            result = "\"$result\""
         }
-
-        products.forEachIndexed { index, product ->
-            val row = sheet.createRow(index + 1)
-            row.createCell(0).setCellValue(product.id.toDouble())
-            row.createCell(1).setCellValue(product.name)
-            row.createCell(2).setCellValue(product.category)
-            row.createCell(3).setCellValue(product.buyPrice)
-            row.createCell(4).setCellValue(product.sellPrice)
-            row.createCell(5).setCellValue(product.stock.toDouble())
-            row.createCell(6).setCellValue(product.unit)
-            row.createCell(7).setCellValue(product.barcode)
-        }
-
-        val fileName = "Stok_Barang_${System.currentTimeMillis()}.xlsx"
-        val file = File(context.getExternalFilesDir(null), fileName)
-        val outputStream = FileOutputStream(file)
-        workbook.write(outputStream)
-        outputStream.close()
-        workbook.close()
-        return file
+        return result
     }
 
-    fun exportSalesToExcel(context: Context, salesList: List<Sale>): File {
-        val workbook = XSSFWorkbook()
-        val sheet = workbook.createSheet("Laporan Penjualan")
-        val headerRow = sheet.createRow(0)
-        val headers = listOf("No", "Tanggal", "Jam", "Nama Barang", "Qty", "Total Jual", "Keuntungan")
+    private fun parseCsvLine(line: String): List<String> {
+        val result = mutableListOf<String>()
+        val sb = StringBuilder()
+        var inQuotes = false
 
-        headers.forEachIndexed { index, title ->
-            headerRow.createCell(index).setCellValue(title)
+        for (char in line) {
+            if (char == '\"') {
+                inQuotes = !inQuotes
+            } else if (char == ',' && !inQuotes) {
+                result.add(sb.toString().trim())
+                sb.clear()
+            } else {
+                sb.append(char)
+            }
         }
-
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-        val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-
-        salesList.forEachIndexed { index, sale ->
-            val row = sheet.createRow(index + 1)
-            val date = Date(sale.date)
-            val profit = sale.totalPrice - sale.capitalPrice
-            row.createCell(0).setCellValue((index + 1).toDouble())
-            row.createCell(1).setCellValue(dateFormat.format(date))
-            row.createCell(2).setCellValue(timeFormat.format(date))
-            row.createCell(3).setCellValue(sale.productName)
-            row.createCell(4).setCellValue(sale.quantity.toDouble())
-            row.createCell(5).setCellValue(sale.totalPrice)
-            row.createCell(6).setCellValue(profit)
-        }
-
-        val fileName = "Laporan_Penjualan_${System.currentTimeMillis()}.xlsx"
-        val file = File(context.getExternalFilesDir(null), fileName)
-        val outputStream = FileOutputStream(file)
-        workbook.write(outputStream)
-        outputStream.close()
-        workbook.close()
-        return file
+        result.add(sb.toString().trim())
+        return result
     }
 }

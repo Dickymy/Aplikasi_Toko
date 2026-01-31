@@ -2,7 +2,6 @@ package com.example.aplikasitokosembakoarkhan
 
 import android.content.Context
 import android.net.Uri
-import android.os.Environment
 import android.provider.ContactsContract
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -15,7 +14,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -67,9 +65,9 @@ class InventoryViewModel(
     }
 
     fun updateProduct(product: Product) = viewModelScope.launch { productDao.updateProduct(product) }
-    fun update(product: Product) = updateProduct(product)
+    // fun update(product: Product) = updateProduct(product) // Hapus duplikat agar lebih rapi
 
-    // --- CRUD KATEGORI (DENGAN SAFE DELETE & PRIORITAS) ---
+    // --- CRUD KATEGORI ---
     fun addCategory(name: String, isPriority: Boolean) = viewModelScope.launch {
         if (isPriority) categoryDao.clearAllPriorities()
         categoryDao.insertCategory(Category(name = name, isPriority = isPriority))
@@ -80,7 +78,6 @@ class InventoryViewModel(
         categoryDao.updateCategory(category)
     }
 
-    // LOGIKA PENTING: Cek dulu sebelum hapus kategori
     fun deleteCategorySafe(category: Category, onSuccess: () -> Unit, onError: (String) -> Unit) = viewModelScope.launch {
         val count = productDao.countProductsByCategory(category.name)
         if (count > 0) {
@@ -91,7 +88,7 @@ class InventoryViewModel(
         }
     }
 
-    // --- CRUD SATUAN (DENGAN SAFE DELETE & PRIORITAS) ---
+    // --- CRUD SATUAN ---
     fun addUnit(name: String, isPriority: Boolean) = viewModelScope.launch {
         if (isPriority) unitDao.clearAllPriorities()
         unitDao.insertUnit(UnitModel(name = name, isPriority = isPriority))
@@ -102,7 +99,6 @@ class InventoryViewModel(
         unitDao.updateUnit(unit)
     }
 
-    // LOGIKA PENTING: Cek dulu sebelum hapus satuan
     fun deleteUnitSafe(unit: UnitModel, onSuccess: () -> Unit, onError: (String) -> Unit) = viewModelScope.launch {
         val count = productDao.countProductsByUnit(unit.name)
         if (count > 0) {
@@ -114,7 +110,11 @@ class InventoryViewModel(
     }
 
     // --- MANAJEMEN PELANGGAN ---
-    fun addCustomer(name: String, phone: String) = viewModelScope.launch { customerDao.insertCustomer(Customer(name = name, phoneNumber = phone, totalDebt = 0.0)) }
+    fun addCustomer(name: String, phone: String) = viewModelScope.launch {
+        if(customerDao.getCustomerByName(name) == null) {
+            customerDao.insertCustomer(Customer(name = name, phoneNumber = phone, totalDebt = 0.0))
+        }
+    }
     fun updateCustomer(customer: Customer) = viewModelScope.launch { customerDao.updateCustomer(customer) }
     fun deleteCustomer(c: Customer) = viewModelScope.launch { customerDao.deleteCustomer(c); debtTransactionDao.deleteAllTransactionsByCustomer(c.id) }
 
@@ -132,6 +132,41 @@ class InventoryViewModel(
     fun getDebtHistory(customerId: Int) = debtTransactionDao.getTransactionsByCustomer(customerId)
 
     // --- EXPORT & IMPORT ---
+
+    // 1. Export Data Barang ke CSV
+    fun exportDataToCsv(context: Context, uri: Uri, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val products = productDao.getAllProductsSync()
+            val result = ExcelHelper.exportProductsToCsv(context, uri, products)
+            withContext(Dispatchers.Main) {
+                if (result.isSuccess) onSuccess() else onError(result.exceptionOrNull()?.message ?: "Gagal Export")
+            }
+        }
+    }
+
+    // 2. Import Data Barang dari CSV
+    fun importDataFromCsv(context: Context, uri: Uri, onSuccess: (Int) -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = ExcelHelper.importProductsFromCsv(context, uri)
+            if (result.isSuccess) {
+                val newProducts = result.getOrNull() ?: emptyList()
+                newProducts.forEach { p ->
+                    val existing = productDao.getProductByBarcode(p.barcode)
+                    if (existing != null) {
+                        val updated = p.copy(id = existing.id, imagePath = existing.imagePath)
+                        productDao.updateProduct(updated)
+                    } else {
+                        productDao.insertProduct(p)
+                    }
+                }
+                withContext(Dispatchers.Main) { onSuccess(newProducts.size) }
+            } else {
+                withContext(Dispatchers.Main) { onError(result.exceptionOrNull()?.message ?: "Gagal Import") }
+            }
+        }
+    }
+
+    // 3. Export Transaksi ke CSV
     fun exportTransactionsToCsv(context: Context, uri: Uri, transactions: List<Transaction>, onResult: (String) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -160,14 +195,7 @@ class InventoryViewModel(
         }
     }
 
-    fun importExcel(ctx: Context, uri: Uri, onResult: (Int) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val list = ExcelHelper.parseExcelToProducts(ctx, uri)
-            if (list.isNotEmpty()) productDao.insertAll(list)
-            withContext(Dispatchers.Main) { onResult(list.size) }
-        }
-    }
-
+    // 4. Import Kontak HP ke Pelanggan
     fun importPhoneContacts(context: Context, onResult: (Int) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             var count = 0
@@ -178,7 +206,7 @@ class InventoryViewModel(
                 while (it.moveToNext()) {
                     if (nameIndex != -1 && numberIndex != -1) {
                         val name = it.getString(nameIndex) ?: ""
-                        var number = it.getString(numberIndex) ?: "".replace("[^\\d+]".toRegex(), "")
+                        val number = it.getString(numberIndex) ?: "".replace("[^\\d+]".toRegex(), "")
                         if (name.isNotEmpty() && customerDao.getCustomerByName(name) == null) {
                             customerDao.insertCustomer(Customer(name = name, phoneNumber = number, totalDebt = 0.0))
                             count++
@@ -190,30 +218,16 @@ class InventoryViewModel(
         }
     }
 
+    // 5. Import Customer dari Excel (Optional: Memerlukan Library POI yang berat,
+    // jika ingin CSV saja, fungsi ini bisa dihapus/diganti)
+    // Untuk saat ini saya comment agar tidak error jika library POI tidak ada
+    /*
     fun importCustomers(context: Context, uri: Uri, onResult: (Int) -> Unit) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val inputStream = context.contentResolver.openInputStream(uri)
-                val workbook = org.apache.poi.ss.usermodel.WorkbookFactory.create(inputStream)
-                val sheet = workbook.getSheetAt(0)
-                var count = 0
-                val iter = sheet.iterator()
-                if (iter.hasNext()) iter.next()
-                while (iter.hasNext()) {
-                    val row = iter.next()
-                    val name = row.getCell(0)?.toString() ?: ""
-                    val phone = row.getCell(1)?.toString()?.replace("[^\\d]".toRegex(), "") ?: ""
-                    if (name.isNotEmpty() && customerDao.getCustomerByName(name) == null) {
-                        customerDao.insertCustomer(Customer(name = name, phoneNumber = phone, totalDebt = 0.0))
-                        count++
-                    }
-                }
-                inputStream?.close()
-                withContext(Dispatchers.Main) { onResult(count) }
-            } catch (e: Exception) { e.printStackTrace(); withContext(Dispatchers.Main) { onResult(0) } }
-        }
+        // ... (Kode import POI) ...
     }
+    */
 
+    // --- HELPER INTERNAL ---
     private fun saveImageToInternalStorage(context: Context, uri: Uri?): String? {
         if (uri == null) return null
         return try {
