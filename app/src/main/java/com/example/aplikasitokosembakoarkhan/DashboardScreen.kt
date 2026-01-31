@@ -1,5 +1,8 @@
 package com.example.aplikasitokosembakoarkhan
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,16 +21,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.aplikasitokosembakoarkhan.data.Product
 import java.text.NumberFormat
-import java.text.SimpleDateFormat
 import java.util.Calendar
-import java.util.Date
 import java.util.Locale
 
 @Composable
@@ -43,6 +43,9 @@ fun DashboardScreen(
     val transactions by reportViewModel.allTransactions.collectAsState(initial = emptyList())
     val storeProfile by settingsViewModel.storeProfile.collectAsState()
 
+    // --- STATE UI ---
+    var showStoreProfileDialog by remember { mutableStateOf(false) }
+
     // --- LOGIKA DATA ---
     val todayStart = Calendar.getInstance().apply {
         set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
@@ -51,8 +54,8 @@ fun DashboardScreen(
     val todaySales = transactions.filter { it.date >= todayStart }.sumOf { it.totalAmount }
     val todayTransactionCount = transactions.count { it.date >= todayStart }
 
+    // Filter Data Warning
     val lowStockProducts = products.filter { it.stock <= 5 }.sortedBy { it.stock }
-
     val thirtyDaysFromNow = System.currentTimeMillis() + (30L * 24 * 60 * 60 * 1000)
     val expiringProducts = products.filter { it.expireDate > 0 && it.expireDate < thirtyDaysFromNow && it.expireDate > System.currentTimeMillis() }.sortedBy { it.expireDate }
 
@@ -70,7 +73,6 @@ fun DashboardScreen(
         return NumberFormat.getCurrencyInstance(Locale("id", "ID")).format(amount).replace("Rp", "Rp ").replace(",00", "")
     }
 
-    // FUNGSI FORMAT STOK (FIXED)
     fun formatQty(qty: Double): String {
         return if (qty % 1.0 == 0.0) qty.toInt().toString() else qty.toString()
     }
@@ -82,20 +84,24 @@ fun DashboardScreen(
             .background(MaterialTheme.colorScheme.background)
             .padding(16.dp)
     ) {
-        // HEADER
+        // HEADER (DENGAN TOMBOL PROFIL TOKO)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = greeting, style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
                 Text(text = storeProfile.name.ifEmpty { "Toko Sembako" }, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             }
-            IconButton(onClick = { /* Navigasi ke Setting jika perlu */ }) {
+            // ICON TOKO SEKARANG BERFUNGSI
+            IconButton(
+                onClick = { showStoreProfileDialog = true },
+                modifier = Modifier.background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
+            ) {
                 Icon(Icons.Default.Store, null, tint = MaterialTheme.colorScheme.primary)
             }
         }
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // --- HERO SECTION ---
+        // --- HERO SECTION (OMZET & QUICK ACCESS) ---
         Row(
             modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -156,7 +162,7 @@ fun DashboardScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // --- PERINGATAN (SCROLLABLE) ---
+        // --- PERINGATAN (EXPANDABLE) ---
         Text("Peringatan & Status", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -164,50 +170,42 @@ fun DashboardScreen(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // EXPIRE
+            // 1. EXPIRE WARNING (EXPANDABLE)
             if (expiringProducts.isNotEmpty()) {
                 item {
-                    WarningCard(
+                    ExpandableWarningCard(
                         title = "Hampir Kadaluarsa (${expiringProducts.size})",
-                        color = Color(0xFFFFEBEE), // Pink Muda
-                        borderColor = Color(0xFFEF5350), // Merah
-                        icon = Icons.Default.Warning
-                    ) {
-                        expiringProducts.take(5).forEach { p ->
+                        color = Color(0xFFFFEBEE),
+                        borderColor = Color(0xFFEF5350),
+                        icon = Icons.Default.Warning,
+                        items = expiringProducts,
+                        content = { p ->
                             val daysLeft = ((p.expireDate - System.currentTimeMillis()) / (1000 * 60 * 60 * 24)).toInt()
                             Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text(p.name, fontWeight = FontWeight.Medium, fontSize = 13.sp)
                                 Text("$daysLeft hari lagi", color = Color.Red, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
-                            HorizontalDivider(color = Color.Red.copy(alpha = 0.1f))
                         }
-                        if (expiringProducts.size > 5) Text("...dan ${expiringProducts.size - 5} lainnya", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.padding(top = 4.dp))
-                    }
+                    )
                 }
             }
 
-            // STOK MENIPIS
+            // 2. STOK WARNING (EXPANDABLE)
             if (lowStockProducts.isNotEmpty()) {
                 item {
-                    WarningCard(
+                    ExpandableWarningCard(
                         title = "Stok Menipis (${lowStockProducts.size})",
-                        color = Color(0xFFFFF3E0), // Orange Muda
-                        borderColor = Color(0xFFFF9800), // Orange Manual
-                        icon = Icons.Default.ProductionQuantityLimits
-                    ) {
-                        lowStockProducts.take(5).forEach { p ->
+                        color = Color(0xFFFFF3E0),
+                        borderColor = Color(0xFFFF9800),
+                        icon = Icons.Default.ProductionQuantityLimits,
+                        items = lowStockProducts,
+                        content = { p ->
                             Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text(p.name, fontWeight = FontWeight.Medium, fontSize = 13.sp)
-
-                                // FIX: MENGGUNAKAN FORMAT QTY AGAR RAPI (0 bukan 0.0)
-                                val unitStr = formatQty(p.stock)
-
-                                Text("Sisa: $unitStr ${p.unit}", color = Color(0xFFE65100), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("Sisa: ${formatQty(p.stock)} ${p.unit}", color = Color(0xFFE65100), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
-                            HorizontalDivider(color = Color(0xFFFF9800).copy(alpha = 0.1f))
                         }
-                        if (lowStockProducts.size > 5) Text("...dan ${lowStockProducts.size - 5} lainnya", fontSize = 11.sp, color = Color.Gray, modifier = Modifier.padding(top = 4.dp))
-                    }
+                    )
                 }
             }
 
@@ -224,6 +222,99 @@ fun DashboardScreen(
             }
 
             item { Spacer(Modifier.height(80.dp)) }
+        }
+    }
+
+    // --- DIALOG PROFIL TOKO (FITUR BARU UNTUK IKON TOKO) ---
+    if (showStoreProfileDialog) {
+        AlertDialog(
+            onDismissRequest = { showStoreProfileDialog = false },
+            icon = { Icon(Icons.Default.Store, null, modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary) },
+            title = { Text(storeProfile.name.ifEmpty { "Profil Toko" }) },
+            text = {
+                Column {
+                    Text("Alamat:", fontSize = 12.sp, color = Color.Gray)
+                    Text(storeProfile.address.ifEmpty { "-" }, fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Telepon:", fontSize = 12.sp, color = Color.Gray)
+                    Text(storeProfile.phone.ifEmpty { "-" }, fontWeight = FontWeight.Medium)
+
+                    Divider(Modifier.padding(vertical = 12.dp))
+
+                    // Statistik Ringkas
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Column { Text("Total Aset", fontSize = 11.sp); Text(formatRupiah(totalAsset), fontWeight = FontWeight.Bold) }
+                        Column { Text("Total Barang", fontSize = 11.sp); Text("${products.size} Item", fontWeight = FontWeight.Bold) }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showStoreProfileDialog = false }) { Text("Tutup") }
+            },
+            // Opsional: Tombol Edit mengarah ke Settings
+            dismissButton = {
+                // Di sini Anda bisa menambahkan navigasi ke Settings jika mau,
+                // tapi karena ini komponen Composable mandiri, kita cukup tutup saja.
+            }
+        )
+    }
+}
+
+// --- KOMPONEN WARNING YANG BISA EXPAND ---
+@Composable
+fun <T> ExpandableWarningCard(
+    title: String,
+    color: Color,
+    borderColor: Color,
+    icon: ImageVector,
+    items: List<T>,
+    content: @Composable (T) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val displayItems = if (expanded) items else items.take(5)
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = color),
+        border = BorderStroke(1.dp, borderColor.copy(alpha = 0.3f)),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            // Header
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, null, tint = borderColor, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(title, color = borderColor, fontWeight = FontWeight.Bold)
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            // List Items
+            Column {
+                displayItems.forEachIndexed { index, item ->
+                    content(item)
+                    if (index < displayItems.size - 1) {
+                        HorizontalDivider(color = borderColor.copy(alpha = 0.1f))
+                    }
+                }
+            }
+
+            // Tombol Expand / Collapse
+            if (items.size > 5) {
+                Spacer(Modifier.height(8.dp))
+                TextButton(
+                    onClick = { expanded = !expanded },
+                    modifier = Modifier.align(Alignment.CenterHorizontally).fillMaxWidth(),
+                    colors = ButtonDefaults.textButtonColors(contentColor = borderColor)
+                ) {
+                    Text(if (expanded) "Sembunyikan" else "Lihat Semua (${items.size})")
+                    Icon(
+                        if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        null,
+                        modifier = Modifier.padding(start = 4.dp).size(16.dp)
+                    )
+                }
+            }
         }
     }
 }
@@ -252,28 +343,6 @@ fun StatisticItem(icon: ImageVector, label: String, value: String) {
         Column {
             Text(label, fontSize = 11.sp, color = Color.Gray)
             Text(value, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        }
-    }
-}
-
-@Composable
-fun WarningCard(
-    title: String, color: Color, borderColor: Color, icon: ImageVector, content: @Composable () -> Unit
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = color),
-        border = BorderStroke(1.dp, borderColor.copy(alpha = 0.3f)),
-        shape = RoundedCornerShape(12.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(icon, null, tint = borderColor, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(title, color = borderColor, fontWeight = FontWeight.Bold)
-            }
-            Spacer(Modifier.height(12.dp))
-            content()
         }
     }
 }
