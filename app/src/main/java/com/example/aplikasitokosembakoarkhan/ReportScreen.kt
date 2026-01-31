@@ -105,88 +105,50 @@ fun ReportScreen(
         return if (qty % 1.0 == 0.0) qty.toInt().toString() else qty.toString()
     }
 
-    // --- LOGIC REKONSTRUKSI DATA (PENTING UNTUK STRUK) ---
-    // Karena di history kita hanya simpan string nama barang, kita harus cocokan lagi dengan data produk
-    // untuk mendapatkan harga satuan agar tampilan struk sama persis dengan kasir.
+    // --- LOGIC REKONSTRUKSI DATA ---
     fun reconstructCartFromTransaction(trans: Transaction): Map<Product, Double> {
         val cartMap = mutableMapOf<Product, Double>()
         val items = trans.items.split(", ")
 
         items.forEach { itemStr ->
             try {
-                // Format string di database: "Nama Barang x 1.0"
                 val lastX = itemStr.lastIndexOf(" x")
                 if (lastX != -1) {
                     val name = itemStr.substring(0, lastX).trim()
                     val qty = itemStr.substring(lastX + 2).toDoubleOrNull() ?: 0.0
-
-                    // Cari produk berdasarkan nama di database saat ini
                     var product = productList.find { it.name.equals(name, ignoreCase = true) }
 
-                    // Jika produk sudah dihapus dari database, buat produk dummy agar struk tetap jalan
                     if (product == null) {
-                        product = Product(
-                            id = 0,
-                            name = name,
-                            barcode = "",
-                            buyPrice = 0.0,
-                            sellPrice = 0.0, // Harga 0 karena data hilang
-                            stock = 0.0,
-                            category = "-",
-                            unit = ""
-                        )
+                        product = Product(0, name, "", 0.0, 0.0, 0.0, "-", "")
                     }
                     cartMap[product] = qty
                 }
-            } catch (e: Exception) {
-                // Ignore error parsing
-            }
+            } catch (e: Exception) {}
         }
         return cartMap
     }
 
-    // --- FUNGSI GENERATE TEXT WA (SAMA PERSIS DENGAN KASIR) ---
+    // --- FUNGSI GENERATE TEXT WA ---
     fun generateReceiptText(trans: Transaction): String {
         val cart = reconstructCartFromTransaction(trans)
         val sb = StringBuilder()
-
-        // Gunakan tanggal transaksi asli
         val date = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale("id", "ID")).format(Date(trans.date))
 
-        // 1. Header Toko
         sb.append("*${storeProfile.name.uppercase()}*\n")
         if(storeProfile.address.isNotEmpty()) sb.append("${storeProfile.address}\n")
         if(storeProfile.phone.isNotEmpty()) sb.append("Telp: ${storeProfile.phone}\n")
         sb.append("--------------------------------\n")
-
-        // 2. Info Transaksi
         sb.append("Tgl: $date\nPlg: ${trans.customerName}\n--------------------------------\n")
 
-        // 3. Detail Barang
         cart.forEach { (product, qty) ->
-            // Gunakan harga jual saat ini (atau 0 jika produk dihapus)
-            // Catatan: Jika harga berubah setelah transaksi, ini akan ikut harga baru.
-            // Untuk akurasi 100% historis, harga per item harus disimpan di database transaksi.
-            // Di sini kita gunakan logic Grosir jika qty memenuhi syarat.
             val finalPrice = if (product.wholesaleQty > 0 && qty >= product.wholesaleQty) product.wholesalePrice else product.sellPrice
-
             sb.append("${product.name}\n${formatQty(qty)} x ${formatRupiah(finalPrice)} = ${formatRupiah(finalPrice * qty)}\n")
         }
 
-        // 4. Total & Pembayaran
-        // Karena database transaksi belum menyimpan "Bayar" dan "Kembali",
-        // Kita asumsikan pembayaran Pas (Uang Pas) untuk report history.
-        val payAmount = trans.totalAmount
-        val changeAmount = 0.0
-
         sb.append("--------------------------------\n*Total    : ${formatRupiah(trans.totalAmount)}*\n")
-        sb.append("Bayar    : ${formatRupiah(payAmount)}\n")
-        if (trans.paymentMethod == "Tunai") {
-            sb.append("Kembali : ${formatRupiah(changeAmount)}\n")
-        }
+        sb.append("Bayar    : ${formatRupiah(trans.payAmount)}\n")
+        if (trans.paymentMethod == "Tunai") sb.append("Kembali : ${formatRupiah(trans.changeAmount)}\n")
         sb.append("Metode  : ${trans.paymentMethod}\n--------------------------------\n")
-
-        // 5. Footer
         if(storeProfile.footer.isNotEmpty()) sb.append("${storeProfile.footer}\n") else sb.append("Terima Kasih!\n")
 
         return sb.toString()
@@ -195,48 +157,34 @@ fun ReportScreen(
     // --- FUNGSI SHARE WA ---
     fun shareToWhatsApp(trans: Transaction) {
         val text = generateReceiptText(trans)
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, text)
-            setPackage("com.whatsapp")
-        }
-        try {
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            Toast.makeText(context, "WhatsApp tidak ditemukan", Toast.LENGTH_SHORT).show()
-        }
+        val intent = Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text); setPackage("com.whatsapp") }
+        try { context.startActivity(intent) } catch (e: Exception) { Toast.makeText(context, "WhatsApp tidak ditemukan", Toast.LENGTH_SHORT).show() }
     }
 
-    // --- FUNGSI PRINT (THERMAL) ---
+    // --- FUNGSI PRINT ---
     fun printTransaction(trans: Transaction) {
         val cartMap = reconstructCartFromTransaction(trans)
-
-        // Asumsi uang pas untuk history
-        val payAmount = trans.totalAmount
-        val changeAmount = 0.0
-
         PrinterHelper.printReceipt(
             context = context,
             cart = cartMap,
             totalPrice = trans.totalAmount,
-            payAmount = payAmount,
-            change = changeAmount,
+            payAmount = trans.payAmount,
+            change = trans.changeAmount,
             paymentMethod = trans.paymentMethod,
-            transactionDate = trans.date // Kirim tanggal asli transaksi
+            transactionDate = trans.date
         )
     }
 
-    // --- FILTER & SORT LOGIC ---
+    // --- FILTER & SORT ---
     val filteredTransactions = remember(transactions, selectedPaymentFilter, startDate, endDate, sortOption) {
         var result = transactions
         if (startDate != null) result = result.filter { it.date >= startDate!! }
-        if (endDate != null) result = result.filter { it.date <= (endDate!! + 86400000L) } // +1 hari full
+        if (endDate != null) result = result.filter { it.date <= (endDate!! + 86400000L) }
 
         if (selectedPaymentFilter != "Semua") {
             if (selectedPaymentFilter == "Non-Tunai") result = result.filter { !it.paymentMethod.equals("Tunai", ignoreCase = true) }
             else result = result.filter { it.paymentMethod.equals(selectedPaymentFilter, ignoreCase = true) }
         }
-
         if (sortOption == "Terbaru") result.sortedByDescending { it.date } else result.sortedByDescending { it.totalAmount }
     }
 
@@ -246,8 +194,6 @@ fun ReportScreen(
 
     val totalOmzet = filteredTransactions.sumOf { it.totalAmount }
     val totalPengeluaran = filteredExpenses.sumOf { it.amount }
-
-    // Hitung estimasi modal
     val totalModalEstimasi = remember(filteredTransactions, productList) {
         var modal = 0.0
         filteredTransactions.forEach { trans ->
@@ -268,16 +214,9 @@ fun ReportScreen(
     }
     val labaBersih = totalOmzet - totalModalEstimasi - totalPengeluaran
 
-    // Launcher Export CSV
-    val exportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("text/csv")
-    ) { uri ->
+    val exportLauncher = rememberLauncherForActivityResult(contract = ActivityResultContracts.CreateDocument("text/csv")) { uri ->
         if (uri != null && filteredTransactions.isNotEmpty()) {
-            inventoryViewModel.exportTransactionsToCsv(context, uri, filteredTransactions) { msg ->
-                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-            }
-        } else if (filteredTransactions.isEmpty()) {
-            Toast.makeText(context, "Tidak ada data untuk diexport", Toast.LENGTH_SHORT).show()
+            inventoryViewModel.exportTransactionsToCsv(context, uri, filteredTransactions) { msg -> Toast.makeText(context, msg, Toast.LENGTH_LONG).show() }
         }
     }
 
@@ -286,21 +225,8 @@ fun ReportScreen(
         containerColor = BackgroundColor,
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = {
-                    if (filteredTransactions.isNotEmpty()) {
-                        val dateFormat = SimpleDateFormat("ddMMMyy", Locale.getDefault())
-                        val startStr = if (startDate != null) dateFormat.format(Date(startDate!!)) else "Semua"
-                        val endStr = if (endDate != null) dateFormat.format(Date(endDate!!)) else "Data"
-                        val fileName = "Laporan_${startStr}_sd_${endStr}.csv"
-                        exportLauncher.launch(fileName)
-                    } else {
-                        Toast.makeText(context, "Tidak ada data untuk diexport", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                containerColor = Color(0xFF1B5E20),
-                contentColor = Color.White,
-                icon = { Icon(Icons.Default.FileDownload, null) },
-                text = { Text("Export Excel") }
+                onClick = { if (filteredTransactions.isNotEmpty()) exportLauncher.launch("Laporan.csv") else Toast.makeText(context, "Data Kosong", Toast.LENGTH_SHORT).show() },
+                containerColor = Color(0xFF1B5E20), contentColor = Color.White, icon = { Icon(Icons.Default.FileDownload, null) }, text = { Text("Export Excel") }
             )
         }
     ) { padding ->
@@ -309,23 +235,12 @@ fun ReportScreen(
             // HEADER CONTROL PANEL
             Surface(color = Color.White, shadowElevation = 2.dp, shape = RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp)) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    // Filter Tanggal
-                    Card(
-                        modifier = Modifier.fillMaxWidth().clickable { showDateDialog = true },
-                        shape = RoundedCornerShape(10.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F7FA)),
-                        border = BorderStroke(1.dp, Color(0xFFE0E0E0))
-                    ) {
+                    Card(modifier = Modifier.fillMaxWidth().clickable { showDateDialog = true }, shape = RoundedCornerShape(10.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFFF5F7FA)), border = BorderStroke(1.dp, Color(0xFFE0E0E0))) {
                         Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                             Icon(Icons.Default.DateRange, null, tint = PrimaryBlue); Spacer(Modifier.width(10.dp))
                             Column {
                                 Text("Periode Laporan", fontSize = 10.sp, color = Color.Gray)
-                                Text(
-                                    text = if (startDate != null) "${SimpleDateFormat("dd MMM").format(Date(startDate!!))} - ${if (endDate != null) SimpleDateFormat("dd MMM yyyy").format(Date(endDate!!)) else "Hari Ini"}" else "Semua Waktu",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = Color.Black
-                                )
+                                Text(text = if (startDate != null) "${SimpleDateFormat("dd MMM").format(Date(startDate!!))} - ${if (endDate != null) SimpleDateFormat("dd MMM yyyy").format(Date(endDate!!)) else "Hari Ini"}" else "Semua Waktu", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color.Black)
                             }
                             Spacer(Modifier.weight(1f)); Icon(Icons.Default.ArrowDropDown, null, tint = Color.Gray)
                         }
@@ -333,43 +248,27 @@ fun ReportScreen(
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    // Filter Pembayaran
                     Text("Metode Pembayaran:", fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
                             items(paymentOptions) { method ->
                                 FilterChip(
-                                    selected = selectedPaymentFilter == method,
-                                    onClick = { selectedPaymentFilter = method },
-                                    label = { Text(method, fontSize = 12.sp) },
-                                    enabled = true,
+                                    selected = selectedPaymentFilter == method, onClick = { selectedPaymentFilter = method }, label = { Text(method, fontSize = 12.sp) },
                                     leadingIcon = if (selectedPaymentFilter == method) { { Icon(Icons.Default.Check, null, modifier = Modifier.size(14.dp)) } } else null,
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = PrimaryBlue.copy(alpha = 0.15f),
-                                        selectedLabelColor = PrimaryBlue,
-                                        selectedLeadingIconColor = PrimaryBlue
-                                    ),
+                                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = PrimaryBlue.copy(alpha = 0.15f), selectedLabelColor = PrimaryBlue),
                                     border = FilterChipDefaults.filterChipBorder(borderColor = if(selectedPaymentFilter == method) PrimaryBlue else Color.LightGray, enabled = true, selected = selectedPaymentFilter == method)
                                 )
                             }
                         }
-                        IconButton(onClick = { sortOption = if(sortOption == "Terbaru") "Tertinggi" else "Terbaru" }) {
-                            Icon(if(sortOption == "Terbaru") Icons.Default.AccessTime else Icons.Default.AttachMoney, null, tint = PrimaryBlue)
-                        }
+                        IconButton(onClick = { sortOption = if(sortOption == "Terbaru") "Tertinggi" else "Terbaru" }) { Icon(if(sortOption == "Terbaru") Icons.Default.AccessTime else Icons.Default.AttachMoney, null, tint = PrimaryBlue) }
                     }
                 }
             }
 
             LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp), modifier = Modifier.fillMaxSize()) {
-
                 item {
-                    Text("Ringkasan Keuangan", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.Gray)
-                    Spacer(Modifier.height(8.dp))
+                    Text("Ringkasan Keuangan", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.Gray); Spacer(Modifier.height(8.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         MiniSummaryCard("Pemasukan", totalOmzet, IncomeColor, Icons.Default.ArrowUpward, Modifier.weight(1f))
                         MiniSummaryCard("Modal", totalModalEstimasi, Color(0xFF607D8B), Icons.Default.Inventory, Modifier.weight(1f))
@@ -384,20 +283,10 @@ fun ReportScreen(
                     }
                 }
 
-                item {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
-                        Text("Riwayat Transaksi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.Gray)
-                        Text("${filteredTransactions.size} Data", fontSize = 12.sp, color = Color.Gray)
-                    }
-                }
+                item { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) { Text("Riwayat Transaksi", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.Gray); Text("${filteredTransactions.size} Data", fontSize = 12.sp, color = Color.Gray) } }
 
-                if (filteredTransactions.isEmpty()) {
-                    item { Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { Text("Tidak ada transaksi", color = Color.Gray) } }
-                } else {
-                    items(filteredTransactions) { trans ->
-                        TransactionItemNew(trans, onClick = { selectedTransaction = trans; showDetailDialog = true })
-                    }
-                }
+                if (filteredTransactions.isEmpty()) item { Box(modifier = Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { Text("Tidak ada transaksi", color = Color.Gray) } }
+                else items(filteredTransactions) { trans -> TransactionItemNew(trans, onClick = { selectedTransaction = trans; showDetailDialog = true }) }
             }
         }
     }
@@ -405,45 +294,16 @@ fun ReportScreen(
     // --- DIALOG FILTER TANGGAL ---
     if (showDateDialog) {
         val cal = Calendar.getInstance()
-
-        fun setRange(daysAgo: Int) {
-            val end = Calendar.getInstance()
-            end.set(Calendar.HOUR_OF_DAY, 23); end.set(Calendar.MINUTE, 59)
-            val start = Calendar.getInstance()
-            start.add(Calendar.DAY_OF_YEAR, -daysAgo)
-            start.set(Calendar.HOUR_OF_DAY, 0); start.set(Calendar.MINUTE, 0)
-
-            startDate = start.timeInMillis
-            endDate = end.timeInMillis
-            showDateDialog = false
-        }
-
-        fun setThisMonth() {
-            val start = Calendar.getInstance()
-            start.set(Calendar.DAY_OF_MONTH, 1)
-            start.set(Calendar.HOUR_OF_DAY, 0); start.set(Calendar.MINUTE, 0)
-            val end = Calendar.getInstance()
-            end.set(Calendar.HOUR_OF_DAY, 23); end.set(Calendar.MINUTE, 59)
-            startDate = start.timeInMillis
-            endDate = end.timeInMillis
-            showDateDialog = false
-        }
-
         AlertDialog(
             onDismissRequest = { showDateDialog = false },
             title = { Text("Filter Periode") },
             text = {
                 Column {
-                    Text("Pilih Cepat:", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(8.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        SuggestionChip(onClick = { setRange(0) }, label = { Text("Hari Ini") }, modifier = Modifier.weight(1f))
-                        SuggestionChip(onClick = { setRange(6) }, label = { Text("7 Hari") }, modifier = Modifier.weight(1f))
-                        SuggestionChip(onClick = { setThisMonth() }, label = { Text("Bulan Ini") }, modifier = Modifier.weight(1f))
+                        SuggestionChip(onClick = { startDate = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0) }.timeInMillis; endDate = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 23); set(Calendar.MINUTE, 59) }.timeInMillis; showDateDialog = false }, label = { Text("Hari Ini") }, modifier = Modifier.weight(1f))
+                        SuggestionChip(onClick = { startDate = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -6); set(Calendar.HOUR_OF_DAY, 0) }.timeInMillis; endDate = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 23) }.timeInMillis; showDateDialog = false }, label = { Text("7 Hari") }, modifier = Modifier.weight(1f))
                     }
                     Divider(Modifier.padding(vertical = 12.dp))
-                    Text("Custom Tanggal:", fontSize = 12.sp, color = Color.Gray, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(8.dp))
                     OutlinedButton(onClick = { DatePickerDialog(context, { _, y, m, d -> val c = Calendar.getInstance(); c.set(y, m, d, 0, 0, 0); startDate = c.timeInMillis }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show() }, modifier = Modifier.fillMaxWidth()) { Text(if(startDate!=null) "Mulai: ${SimpleDateFormat("dd/MM/yy").format(Date(startDate!!))}" else "Pilih Tanggal Mulai") }
                     Spacer(Modifier.height(8.dp))
                     OutlinedButton(onClick = { DatePickerDialog(context, { _, y, m, d -> val c = Calendar.getInstance(); c.set(y, m, d, 23, 59, 59); endDate = c.timeInMillis }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH)).show() }, modifier = Modifier.fillMaxWidth()) { Text(if(endDate!=null) "Sampai: ${SimpleDateFormat("dd/MM/yy").format(Date(endDate!!))}" else "Pilih Tanggal Selesai") }
@@ -454,89 +314,142 @@ fun ReportScreen(
         )
     }
 
-    // --- DIALOG DETAIL ---
+    // --- DIALOG DETAIL TRANSAKSI (UPDATED) ---
     if (showDetailDialog && selectedTransaction != null) {
         val trans = selectedTransaction!!
+
         Dialog(onDismissRequest = { showDetailDialog = false }) {
             Card(modifier = Modifier.fillMaxWidth().heightIn(max = 700.dp), shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
-                Column(modifier = Modifier.padding(24.dp)) {
-                    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(Modifier.size(50.dp).background(PrimaryBlue.copy(0.1f), CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Receipt, null, tint = PrimaryBlue, modifier = Modifier.size(28.dp)) }
-                        Spacer(Modifier.height(12.dp))
-                        Text(formatRupiah(trans.totalAmount), fontSize = 24.sp, fontWeight = FontWeight.Black, color = PrimaryBlue)
-                        Text("Total Transaksi", fontSize = 12.sp, color = Color.Gray)
+                // BOX UTAMA (Untuk Header & Tombol X)
+                Box(modifier = Modifier.fillMaxWidth()) {
+
+                    // Tombol X (Close) - Pojok Kanan Atas
+                    IconButton(
+                        onClick = { showDetailDialog = false },
+                        modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Tutup", tint = Color.Gray)
                     }
-                    Spacer(Modifier.height(20.dp)); Divider(color = Color(0xFFEEEEEE)); Spacer(Modifier.height(16.dp))
 
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Waktu", color = Color.Gray, fontSize = 12.sp); Text(SimpleDateFormat("dd MMM, HH:mm").format(Date(trans.date)), fontWeight = FontWeight.Bold, fontSize = 12.sp) }
-                    Spacer(Modifier.height(8.dp))
+                    // KONTEN UTAMA
+                    Column(modifier = Modifier.padding(24.dp)) {
 
-                    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Person, null, tint = PrimaryBlue, modifier = Modifier.size(20.dp))
-                            Spacer(Modifier.width(12.dp))
-                            Column {
-                                Text("Pelanggan", fontSize = 10.sp, color = Color.Gray)
-                                Text(trans.customerName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            }
-                            Spacer(Modifier.weight(1f))
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text("Metode", fontSize = 10.sp, color = Color.Gray)
-                                Text(trans.paymentMethod, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if(trans.paymentMethod=="Tunai") IncomeColor else Color(0xFFE65100))
-                            }
+                        // Icon & Total
+                        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Box(Modifier.size(50.dp).background(PrimaryBlue.copy(0.1f), CircleShape), contentAlignment = Alignment.Center) { Icon(Icons.Outlined.Receipt, null, tint = PrimaryBlue, modifier = Modifier.size(28.dp)) }
+                            Spacer(Modifier.height(12.dp))
+                            Text(formatRupiah(trans.totalAmount), fontSize = 24.sp, fontWeight = FontWeight.Black, color = PrimaryBlue)
+                            Text("Total Transaksi", fontSize = 12.sp, color = Color.Gray)
                         }
-                    }
 
-                    Spacer(Modifier.height(16.dp))
-                    Text("Detail Item", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
-                    Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(20.dp)); Divider(color = Color(0xFFEEEEEE)); Spacer(Modifier.height(16.dp))
 
-                    Column(modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
-                        // REKONSTRUKSI DATA UNTUK TAMPILAN DETAIL
-                        val items = trans.items.split(", ")
-                        items.forEach { itemStr ->
-                            if (itemStr.isNotBlank()) {
-                                var name = itemStr
-                                var qty = ""
-                                try {
-                                    val lastX = itemStr.lastIndexOf(" x")
-                                    if(lastX != -1) {
-                                        name = itemStr.substring(0, lastX).trim()
-                                        val rawQty = itemStr.substring(lastX + 2).toDoubleOrNull() ?: 0.0
-                                        qty = formatQty(rawQty)
-                                    }
-                                } catch(e: Exception){}
+                        // Info Waktu
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Waktu", color = Color.Gray, fontSize = 12.sp); Text(SimpleDateFormat("dd MMM, HH:mm").format(Date(trans.date)), fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                        Spacer(Modifier.height(8.dp))
 
-                                val product = productList.find { it.name.equals(name, ignoreCase = true) }
-                                val desc = product?.description ?: ""
-                                val unit = product?.unit ?: ""
-                                val category = product?.category ?: "-"
-
-                                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    if (product?.imagePath != null) {
-                                        AsyncImage(model = File(product.imagePath), null, Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
-                                    } else {
-                                        Box(Modifier.size(40.dp).background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.ShoppingBag, null, tint = Color.LightGray) }
-                                    }
-                                    Spacer(Modifier.width(12.dp))
-                                    Column(Modifier.weight(1f)) {
-                                        Text(name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                        if (desc.isNotEmpty()) Text(desc, fontSize = 11.sp, color = Color.Gray, fontStyle = FontStyle.Italic)
-                                        Text("$category • $unit", fontSize = 10.sp, color = PrimaryBlue)
-                                    }
-                                    if(qty.isNotEmpty()) {
-                                        Text("x$qty", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    }
+                        // Card Pelanggan
+                        Card(colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+                            Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Person, null, tint = PrimaryBlue, modifier = Modifier.size(20.dp))
+                                Spacer(Modifier.width(12.dp))
+                                Column {
+                                    Text("Pelanggan", fontSize = 10.sp, color = Color.Gray)
+                                    Text(trans.customerName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 }
-                                Divider(color = Color(0xFFF5F5F5))
                             }
                         }
-                    }
 
-                    Spacer(Modifier.height(16.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { printTransaction(trans) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) { Icon(Icons.Default.Print, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Cetak") }
-                        Button(onClick = { shareToWhatsApp(trans) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))) { Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("WA") }
+                        Spacer(Modifier.height(16.dp))
+
+                        // --- INFO PEMBAYARAN ---
+                        Text("Rincian Pembayaran", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                        Spacer(Modifier.height(8.dp))
+
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Total Tagihan", fontSize = 13.sp)
+                            Text(formatRupiah(trans.totalAmount), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Diterima (${trans.paymentMethod})", fontSize = 13.sp)
+                            Text(formatRupiah(trans.payAmount), fontWeight = FontWeight.Bold, fontSize = 13.sp, color = IncomeColor)
+                        }
+                        if (trans.paymentMethod == "Tunai") {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Kembalian", fontSize = 13.sp)
+                                val colorKembali = if(trans.changeAmount < 0) Color.Red else Color.Black
+                                Text(formatRupiah(trans.changeAmount), fontWeight = FontWeight.Bold, fontSize = 13.sp, color = colorKembali)
+                            }
+                        }
+
+                        Divider(Modifier.padding(vertical = 12.dp))
+                        // ------------------------------------------------
+
+                        // PERBAIKAN: Hitung total item yang dibeli (bukan jenis item, tapi quantity)
+                        val items = trans.items.split(", ").filter { it.isNotBlank() }
+                        val totalItemQty = items.sumOf { itemStr ->
+                            try {
+                                val lastX = itemStr.lastIndexOf(" x")
+                                if (lastX != -1) itemStr.substring(lastX + 2).toDoubleOrNull() ?: 0.0 else 0.0
+                            } catch (e: Exception) { 0.0 }
+                        }
+
+                        // Menampilkan Header dengan Total Qty
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Detail Item", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray)
+                            Spacer(Modifier.width(8.dp))
+                            Surface(color = Color.LightGray.copy(alpha = 0.3f), shape = RoundedCornerShape(4.dp)) {
+                                Text("${formatQty(totalItemQty)} Pcs", fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), color = Color.Black)
+                            }
+                        }
+
+                        Spacer(Modifier.height(8.dp))
+
+                        Column(modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                            items.forEachIndexed { index, itemStr -> // PERBAIKAN: Pakai forEachIndexed untuk nomor
+                                if (itemStr.isNotBlank()) {
+                                    var name = itemStr; var qty = ""
+                                    try {
+                                        val lastX = itemStr.lastIndexOf(" x")
+                                        if(lastX != -1) {
+                                            name = itemStr.substring(0, lastX).trim()
+                                            qty = formatQty(itemStr.substring(lastX + 2).toDoubleOrNull() ?: 0.0)
+                                        }
+                                    } catch(e: Exception){}
+
+                                    val product = productList.find { it.name.equals(name, ignoreCase = true) }
+
+                                    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        // NOMOR URUT
+                                        Text("${index + 1}.", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.Gray, modifier = Modifier.width(24.dp))
+
+                                        if (product?.imagePath != null) AsyncImage(model = File(product.imagePath), null, Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
+                                        else Box(Modifier.size(40.dp).background(Color(0xFFF5F5F5), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Default.ShoppingBag, null, tint = Color.LightGray) }
+
+                                        Spacer(Modifier.width(12.dp))
+
+                                        Column(Modifier.weight(1f)) {
+                                            Text(name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                            Text("${product?.category?:"-"} • ${product?.unit?:"-"}", fontSize = 10.sp, color = PrimaryBlue)
+                                        }
+
+                                        if(qty.isNotEmpty()) {
+                                            // TAMPILAN QTY LEBIH JELAS
+                                            Surface(color = PrimaryBlue.copy(0.1f), shape = RoundedCornerShape(4.dp)) {
+                                                Text("x$qty", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = PrimaryBlue, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                            }
+                                        }
+                                    }
+                                    if (index < items.size - 1) Divider(color = Color(0xFFF5F5F5))
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.height(16.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { printTransaction(trans) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) { Icon(Icons.Default.Print, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("Cetak") }
+                            Button(onClick = { shareToWhatsApp(trans) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF25D366))) { Icon(Icons.Default.Share, null, modifier = Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text("WA") }
+                        }
                     }
                 }
             }
@@ -558,30 +471,12 @@ fun MiniSummaryCard(title: String, amount: Double, color: Color, icon: ImageVect
 
 @Composable
 fun TransactionItemNew(trans: Transaction, onClick: () -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth().clickable { onClick() },
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(0.dp),
-        border = BorderStroke(1.dp, Color(0xFFE0E0E0))
-    ) {
+    Card(modifier = Modifier.fillMaxWidth().clickable { onClick() }, shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(0.dp), border = BorderStroke(1.dp, Color(0xFFE0E0E0))) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(40.dp).clip(CircleShape).background(if(trans.paymentMethod=="Tunai") Color(0xFFE8F5E9) else Color(0xFFE3F2FD)), contentAlignment = Alignment.Center) {
-                Text(trans.customerName.take(1).uppercase(), fontWeight = FontWeight.Bold, color = if(trans.paymentMethod=="Tunai") Color(0xFF2E7D32) else PrimaryBlue)
-            }
+            Box(Modifier.size(40.dp).clip(CircleShape).background(if(trans.paymentMethod=="Tunai") Color(0xFFE8F5E9) else Color(0xFFE3F2FD)), contentAlignment = Alignment.Center) { Text(trans.customerName.take(1).uppercase(), fontWeight = FontWeight.Bold, color = if(trans.paymentMethod=="Tunai") Color(0xFF2E7D32) else PrimaryBlue) }
             Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(trans.customerName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Text(SimpleDateFormat("dd MMM • HH:mm").format(Date(trans.date)), fontSize = 11.sp, color = Color.Gray)
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(NumberFormat.getCurrencyInstance(Locale("id", "ID")).format(trans.totalAmount).replace(",00", ""), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = PrimaryBlue)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(trans.paymentMethod, fontSize = 10.sp, color = Color.Gray)
-                    Spacer(Modifier.width(4.dp))
-                    Icon(Icons.Default.ChevronRight, null, tint = Color.LightGray, modifier = Modifier.size(16.dp))
-                }
-            }
+            Column(Modifier.weight(1f)) { Text(trans.customerName, fontWeight = FontWeight.Bold, fontSize = 14.sp); Text(SimpleDateFormat("dd MMM • HH:mm").format(Date(trans.date)), fontSize = 11.sp, color = Color.Gray) }
+            Column(horizontalAlignment = Alignment.End) { Text(NumberFormat.getCurrencyInstance(Locale("id", "ID")).format(trans.totalAmount).replace(",00", ""), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = PrimaryBlue); Row(verticalAlignment = Alignment.CenterVertically) { Text(trans.paymentMethod, fontSize = 10.sp, color = Color.Gray); Spacer(Modifier.width(4.dp)); Icon(Icons.Default.ChevronRight, null, tint = Color.LightGray, modifier = Modifier.size(16.dp)) } }
         }
     }
 }

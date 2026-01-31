@@ -6,9 +6,11 @@ import androidx.room.PrimaryKey
 @Entity(tableName = "transactions")
 data class Transaction(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
-    val date: Long,
+    val items: String, // Format: "Nama x Qty, ..."
     val totalAmount: Double,
-    val items: String,
+    val payAmount: Double,      // <--- TAMBAHAN BARU
+    val changeAmount: Double,   // <--- TAMBAHAN BARU
+    val date: Long,
     val paymentMethod: String,
     val customerName: String
 )

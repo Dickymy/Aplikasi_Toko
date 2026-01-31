@@ -265,7 +265,7 @@ fun SalesScreen(
     fun cleanInput(input: String): Double = input.replace(".", "").replace(",", "").toDoubleOrNull() ?: 0.0
 
     // ================================================================
-    // KONTEN UTAMA KASIR (REUSABLE)
+    // KONTEN UTAMA KASIR
     // ================================================================
     val salesContent = @Composable {
         Scaffold(
@@ -361,7 +361,7 @@ fun SalesScreen(
                 }
             },
 
-            // --- FOOTER (FIX POSISI DENGAN PADDING KONDISIONAL) ---
+            // --- FOOTER ---
             bottomBar = {
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
@@ -372,8 +372,7 @@ fun SalesScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .navigationBarsPadding() // Dasar: Hindari navigasi HP
-                            // PERBAIKAN: Padding ekstra HANYA saat Fullscreen
+                            .navigationBarsPadding()
                             .padding(bottom = if (isFullScreen) 60.dp else 0.dp)
                     ) {
                         Row(
@@ -472,7 +471,6 @@ fun SalesScreen(
             onDismissRequest = { /* Block dismiss */ },
             properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
         ) {
-            // Toast Pemberitahuan Cara Keluar (Hanya muncul sekali saat masuk)
             LaunchedEffect(Unit) {
                 Toast.makeText(context, "Mode Fokus Aktif! Tekan tombol [Keluar] di pojok kanan atas untuk kembali.", Toast.LENGTH_LONG).show()
             }
@@ -484,7 +482,7 @@ fun SalesScreen(
         salesContent()
     }
 
-    // --- DIALOG KONFIRMASI FULL SCREEN ---
+    // --- DIALOG DIALOG ---
     if (showFullScreenDialog) {
         AlertDialog(
             onDismissRequest = { showFullScreenDialog = false },
@@ -492,21 +490,15 @@ fun SalesScreen(
             title = { Text(if (isFullScreen) "Keluar Mode Fokus?" else "Masuk Mode Fokus?") },
             text = { Text(if (isFullScreen) "Kembali ke tampilan standar." else "Mode ini akan menyembunyikan menu dan memperluas area kasir.") },
             confirmButton = {
-                Button(onClick = {
-                    isFullScreen = !isFullScreen
-                    isInputExpanded = true // Reset ke expanded saat ganti mode
-                    showFullScreenDialog = false
-                }) { Text("Ya") }
+                Button(onClick = { isFullScreen = !isFullScreen; isInputExpanded = true; showFullScreenDialog = false }) { Text("Ya") }
             },
             dismissButton = { TextButton(onClick = { showFullScreenDialog = false }) { Text("Batal") } }
         )
     }
 
-    // --- DIALOG FILTER BARU ---
     if (showFilterDialog) {
         var categorySearch by remember { mutableStateOf("") }
         var unitSearch by remember { mutableStateOf("") }
-
         AlertDialog(
             onDismissRequest = { showFilterDialog = false },
             title = { Text("Filter Produk", fontWeight = FontWeight.Bold) },
@@ -514,11 +506,7 @@ fun SalesScreen(
                 Column(Modifier.fillMaxWidth().heightIn(max = 500.dp)) {
                     Text("Kategori", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(4.dp))
-                    OutlinedTextField(
-                        value = categorySearch, onValueChange = { categorySearch = it },
-                        placeholder = { Text("Cari Kategori...") }, modifier = Modifier.fillMaxWidth(),
-                        singleLine = true, textStyle = LocalTextStyle.current.copy(fontSize = 12.sp)
-                    )
+                    OutlinedTextField(value = categorySearch, onValueChange = { categorySearch = it }, placeholder = { Text("Cari Kategori...") }, modifier = Modifier.fillMaxWidth(), singleLine = true, textStyle = LocalTextStyle.current.copy(fontSize = 12.sp))
                     Spacer(Modifier.height(8.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         item { FilterChip(selected = selectedFilterCategory=="Semua", onClick = { selectedFilterCategory="Semua" }, label = { Text("Semua") }) }
@@ -526,16 +514,10 @@ fun SalesScreen(
                             FilterChip(selected = selectedFilterCategory==cat.name, onClick = { selectedFilterCategory=cat.name }, label = { Text(cat.name) })
                         }
                     }
-
                     Divider(Modifier.padding(vertical = 16.dp))
-
                     Text("Satuan", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(4.dp))
-                    OutlinedTextField(
-                        value = unitSearch, onValueChange = { unitSearch = it },
-                        placeholder = { Text("Cari Satuan...") }, modifier = Modifier.fillMaxWidth(),
-                        singleLine = true, textStyle = LocalTextStyle.current.copy(fontSize = 12.sp)
-                    )
+                    OutlinedTextField(value = unitSearch, onValueChange = { unitSearch = it }, placeholder = { Text("Cari Satuan...") }, modifier = Modifier.fillMaxWidth(), singleLine = true, textStyle = LocalTextStyle.current.copy(fontSize = 12.sp))
                     Spacer(Modifier.height(8.dp))
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         item { FilterChip(selected = selectedFilterUnit=="Semua", onClick = { selectedFilterUnit="Semua" }, label = { Text("Semua") }) }
@@ -549,7 +531,6 @@ fun SalesScreen(
         )
     }
 
-    // --- DIALOG LAINNYA ---
     if (showClearConfirmDialog) {
         AlertDialog(onDismissRequest = { showClearConfirmDialog = false }, title = { Text("Hapus Keranjang?") }, text = { Text("Semua barang di keranjang akan dihapus. Anda yakin?") },
             confirmButton = { Button(onClick = { cart = emptyMap(); selectedCustomerName="Umum"; showClearConfirmDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Color.Red)) { Text("Ya, Hapus") } },
@@ -609,10 +590,7 @@ fun SalesScreen(
             Column {
                 Text("Satuan: ${product.unit}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = qtyInputText, onValueChange = { qtyInputText = it }, label = { Text("Masukkan Jumlah") }, placeholder = { Text("Contoh: 1.5 atau 0.5") },
-                    singleLine = true, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done)
-                )
+                OutlinedTextField(value = qtyInputText, onValueChange = { qtyInputText = it }, label = { Text("Masukkan Jumlah") }, placeholder = { Text("Contoh: 1.5 atau 0.5") }, singleLine = true, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done))
             }
         }, confirmButton = { Button(onClick = { val newQty = parseQtyInput(qtyInputText); if (newQty > 0 && newQty <= product.stock) { updateQty(product, newQty); showEditQtyDialog = false } else { outOfStockProductName = product.name; showOutOfStockDialog = true } }) { Text("Simpan") } }, dismissButton = { TextButton(onClick = { updateQty(product, 0.0); showEditQtyDialog = false }, colors = ButtonDefaults.textButtonColors(contentColor = Color.Red)) { Text("Hapus Item") } })
     }
@@ -621,20 +599,20 @@ fun SalesScreen(
         PaymentDialog(
             cart = cart,
             totalPrice = totalPrice,
-            customerName = selectedCustomerName, // <--- TAMBAHKAN BARIS INI (Mengambil dari state selectedCustomerName)
+            customerName = selectedCustomerName,
             onDismiss = { showPaymentDialog = false },
             onConfirm = { payAmount, method ->
                 viewModel.checkout(
                     cart = cart,
                     paymentMethod = method,
                     customerName = selectedCustomerName,
+                    payAmount = payAmount,
                     onSuccess = {
                         lastTransactionChange = payAmount - totalPrice
                         lastTransactionPay = payAmount
                         lastCartBackup = cart
                         lastPaymentMethod = method
                         lastCustomerName = selectedCustomerName
-
                         cart = emptyMap()
                         selectedCustomerName = "Umum"
                         showPaymentDialog = false
@@ -676,11 +654,12 @@ fun SalesScreen(
     }
 }
 
+// --- PAYMENT DIALOG (UPDATED WITH ORDER NUMBER & TOTAL ITEMS) ---
 @Composable
 fun PaymentDialog(
     cart: Map<Product, Double>,
     totalPrice: Double,
-    customerName: String, // <--- Parameter Baru Ditambahkan
+    customerName: String,
     onDismiss: () -> Unit,
     onConfirm: (Double, String) -> Unit,
     formatRupiah: (Double) -> String,
@@ -691,113 +670,80 @@ fun PaymentDialog(
 ) {
     var paidAmountText by remember { mutableStateOf("") }
     var selectedMethod by remember { mutableStateOf("Tunai") }
-
-    // Logika otomatis mengisi jumlah bayar jika Non-Tunai
     val paidAmount = if (selectedMethod == "Tunai") onCleanInput(paidAmountText) else totalPrice
     val change = paidAmount - totalPrice
 
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Konfirmasi Pembayaran") },
-        text = {
-            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Konfirmasi Pembayaran") }, text = {
+        Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
 
-                // --- TAMPILAN DATA PELANGGAN (BARU) ---
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text("Pelanggan", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f))
-                            Text(customerName, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                        }
-                    }
-                }
-                // ---------------------------------------
-
-                Text("Rincian Pesanan:", fontSize = 12.sp, color = Color.Gray)
-                Spacer(modifier = Modifier.height(8.dp))
-
-                cart.forEach { (product, qty) ->
-                    val finalPrice = getPrice(product, qty)
-                    val isWholesaleActive = finalPrice < product.sellPrice
-
-                    Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (product.imagePath != null) AsyncImage(model = File(product.imagePath), null, Modifier.size(40.dp).clip(RoundedCornerShape(6.dp)).background(Color.LightGray), contentScale = ContentScale.Crop)
-                        else Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(6.dp)).background(Color.LightGray), contentAlignment = Alignment.Center) { Icon(Icons.Default.ShoppingBag, null, tint = Color.White, modifier = Modifier.size(20.dp)) }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(product.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text("${product.category} • ${product.unit}", fontSize = 11.sp, color = Color.Gray)
-                            if (isWholesaleActive) Text("Grosir Aktif", fontSize = 10.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
-                        }
-
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(formatRupiah(finalPrice * qty), fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Text("x${formatQty(qty)}", fontSize = 11.sp, color = Color.Gray)
-                        }
-                    }
-                    HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f))
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text("Metode Pembayaran:", fontWeight = FontWeight.SemiBold)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf("Tunai", "QRIS", "Transfer").forEach { method ->
-                        FilterChip(
-                            selected = selectedMethod == method,
-                            onClick = { selectedMethod = method },
-                            label = { Text(method) }
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Total Tagihan:", fontWeight = FontWeight.Bold)
-                    Text(formatRupiah(totalPrice), fontWeight = FontWeight.Bold, color = Color.Red, fontSize = 18.sp)
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                if (selectedMethod == "Tunai") {
-                    OutlinedTextField(
-                        value = paidAmountText,
-                        onValueChange = { paidAmountText = onFormatInput(it) },
-                        label = { Text("Uang Tunai") },
-                        prefix = { Text("Rp") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = if (change >= 0) "Kembalian: ${formatRupiah(change)}" else "Kurang: ${formatRupiah(kotlin.math.abs(change))}",
-                        color = if (change >= 0) Color(0xFF2E7D32) else Color.Red,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
-                    )
+            // Info Pelanggan
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Person, null, tint = MaterialTheme.colorScheme.primary); Spacer(modifier = Modifier.width(12.dp))
+                    Column { Text("Pelanggan", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)); Text(customerName, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer) }
                 }
             }
-        },
-        confirmButton = {
-            Button(
-                onClick = { onConfirm(paidAmount, selectedMethod) },
-                enabled = paidAmount >= totalPrice
-            ) { Text("SELESAI") }
-        },
-        dismissButton = {
-            OutlinedButton(onClick = onDismiss) { Text("Batal") }
+
+            // Header Rincian + Total Item
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Rincian Pesanan", fontSize = 12.sp, color = Color.Gray)
+                Spacer(modifier = Modifier.width(8.dp))
+                // Menghitung Total Quantity Item
+                val totalItems = cart.values.sum()
+                Surface(color = Color.LightGray.copy(alpha = 0.3f), shape = RoundedCornerShape(4.dp)) {
+                    Text("${formatQty(totalItems)} Pcs", fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp), color = Color.Black)
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // LIST BARANG DENGAN NOMOR URUT
+            var index = 1 // Counter untuk nomor
+            cart.forEach { (product, qty) ->
+                val finalPrice = getPrice(product, qty); val isWholesaleActive = finalPrice < product.sellPrice
+
+                Row(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // NOMOR URUT
+                    Text("$index.", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Gray, modifier = Modifier.width(20.dp))
+
+                    if (product.imagePath != null) AsyncImage(model = File(product.imagePath), null, Modifier.size(40.dp).clip(RoundedCornerShape(6.dp)).background(Color.LightGray), contentScale = ContentScale.Crop)
+                    else Box(modifier = Modifier.size(40.dp).clip(RoundedCornerShape(6.dp)).background(Color.LightGray), contentAlignment = Alignment.Center) { Icon(Icons.Default.ShoppingBag, null, tint = Color.White, modifier = Modifier.size(20.dp)) }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(product.name, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Text("${product.category} • ${product.unit}", fontSize = 11.sp, color = Color.Gray)
+                        if (isWholesaleActive) Text("Grosir Aktif", fontSize = 10.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.Bold)
+                    }
+
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(formatRupiah(finalPrice * qty), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text("x${formatQty(qty)}", fontSize = 11.sp, color = Color.Gray)
+                    }
+                }
+                HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f))
+                index++ // Increment nomor
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Metode Pembayaran
+            Text("Metode Pembayaran:", fontWeight = FontWeight.SemiBold)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("Tunai", "QRIS", "Transfer").forEach { method -> FilterChip(selected = selectedMethod == method, onClick = { selectedMethod = method }, label = { Text(method) }) } }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Total
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Total Tagihan:", fontWeight = FontWeight.Bold); Text(formatRupiah(totalPrice), fontWeight = FontWeight.Bold, color = Color.Red) }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Input Tunai
+            if (selectedMethod == "Tunai") {
+                OutlinedTextField(value = paidAmountText, onValueChange = { paidAmountText = onFormatInput(it) }, label = { Text("Uang Tunai") }, prefix = { Text("Rp") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(text = if (change >= 0) "Kembalian: ${formatRupiah(change)}" else "Kurang: ${formatRupiah(kotlin.math.abs(change))}", color = if (change >= 0) Color(0xFF2E7D32) else Color.Red, fontWeight = FontWeight.Bold)
+            }
         }
-    )
+    }, confirmButton = { Button(onClick = { onConfirm(paidAmount, selectedMethod) }, enabled = paidAmount >= totalPrice) { Text("SELESAI") } }, dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Batal") } })
 }
