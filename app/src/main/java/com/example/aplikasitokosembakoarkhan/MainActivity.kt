@@ -3,7 +3,12 @@ package com.example.aplikasitokosembakoarkhan
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -24,6 +30,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.example.aplikasitokosembakoarkhan.ui.theme.AplikasiTokoSembakoArkhanTheme
 import com.example.aplikasitokosembakoarkhan.utils.SecurityHelper
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -31,7 +38,36 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             AplikasiTokoSembakoArkhanTheme {
-                MainApp()
+                // Surface dasar untuk aplikasi
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    var showSplashScreen by remember { mutableStateOf(true) }
+
+                    // Box Tumpukan: MainApp di bawah, Splash di atas
+                    Box(modifier = Modifier.fillMaxSize()) {
+
+                        // 1. DASHBOARD / MAIN APP (Di Bawah)
+                        MainApp()
+
+                        // 2. SPLASH SCREEN (Di Atas)
+                        AnimatedVisibility(
+                            visible = showSplashScreen,
+                            exit = fadeOut(animationSpec = tween(700)),
+                            modifier = Modifier
+                                .fillMaxSize()
+                                // --- PERBAIKAN PENTING DI SINI ---
+                                // Kita paksa background menjadi solid (sesuai tema/putih)
+                                // agar tidak tembus pandang ke Dashboard di belakangnya.
+                                .background(MaterialTheme.colorScheme.background)
+                        ) {
+                            SplashScreen {
+                                showSplashScreen = false
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -41,16 +77,17 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainApp() {
     val navController = rememberNavController()
+
+    // Gunakan DrawerState standar (Closed)
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+
     val scope = rememberCoroutineScope()
     val currentBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStackEntry?.destination?.route ?: "dashboard"
 
-    // ViewModels
     val settingsViewModel: SettingsViewModel = viewModel(factory = AppViewModelProvider.Factory)
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
 
-    // --- STATE KEAMANAN ---
     var isSessionUnlocked by remember { mutableStateOf(false) }
     var showPinDialog by remember { mutableStateOf(false) }
     var targetRoute by remember { mutableStateOf("") }
@@ -58,7 +95,27 @@ fun MainApp() {
     val isPinSet = SecurityHelper.isPinSet(context)
     val lockedMenus by settingsViewModel.lockedMenus.collectAsState()
 
-    // --- DEFINISI MENU ---
+    // --- FIX SIDEBAR (TETAP DIPERTAHANKAN) ---
+    // Memaksa sidebar tertutup dengan delay kecil saat aplikasi baru dimuat.
+    LaunchedEffect(Unit) {
+        delay(50)
+        if (drawerState.isOpen) {
+            drawerState.snapTo(DrawerValue.Closed)
+        }
+    }
+
+    // Auto-Close Sidebar saat pindah halaman
+    LaunchedEffect(currentRoute) {
+        if (drawerState.isOpen) {
+            drawerState.close()
+        }
+    }
+
+    // Tombol Back menutup Sidebar
+    BackHandler(enabled = drawerState.isOpen) {
+        scope.launch { drawerState.close() }
+    }
+
     val menuGroups = listOf(
         MenuGroup("Utama", listOf(
             MenuItem("Dashboard", "dashboard", Icons.Default.Dashboard)
@@ -85,6 +142,7 @@ fun MainApp() {
 
     ModalNavigationDrawer(
         drawerState = drawerState,
+        gesturesEnabled = true,
         drawerContent = {
             ModalDrawerSheet {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -111,12 +169,7 @@ fun MainApp() {
                                         Text(item.title)
                                         if (isPinSet && isMenuLocked) {
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            Icon(
-                                                imageVector = Icons.Default.Lock,
-                                                contentDescription = "Locked",
-                                                modifier = Modifier.size(12.dp),
-                                                tint = Color.Red
-                                            )
+                                            Icon(Icons.Default.Lock, "Locked", modifier = Modifier.size(12.dp), tint = Color.Red)
                                         }
                                     }
                                 },
@@ -125,15 +178,16 @@ fun MainApp() {
                                 onClick = {
                                     scope.launch { drawerState.close() }
 
-                                    // Logika Keamanan PIN
                                     if (isPinSet && isMenuLocked && !isSessionUnlocked) {
                                         targetRoute = item.route
                                         showPinDialog = true
                                     } else {
-                                        navController.navigate(item.route) {
-                                            popUpTo("dashboard") { saveState = true }
-                                            launchSingleTop = true
-                                            restoreState = true
+                                        if (currentRoute != item.route) {
+                                            navController.navigate(item.route) {
+                                                popUpTo("dashboard") { saveState = true }
+                                                launchSingleTop = true
+                                                restoreState = true
+                                            }
                                         }
                                     }
                                 },
@@ -142,7 +196,6 @@ fun MainApp() {
                         }
                         HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), color = Color.LightGray.copy(alpha = 0.5f))
                     }
-
                     item { Spacer(modifier = Modifier.height(24.dp)) }
                 }
             }
@@ -156,7 +209,11 @@ fun MainApp() {
                         Text(title)
                     },
                     navigationIcon = {
-                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                        IconButton(onClick = {
+                            scope.launch {
+                                if (drawerState.isClosed) drawerState.open() else drawerState.close()
+                            }
+                        }) {
                             Icon(Icons.Default.Menu, null)
                         }
                     },
@@ -166,13 +223,11 @@ fun MainApp() {
                                 if (isSessionUnlocked) {
                                     isSessionUnlocked = false
                                     Toast.makeText(context, "Sesi Terkunci", Toast.LENGTH_SHORT).show()
-                                    // Jika halaman saat ini dikunci, lempar ke dashboard
                                     if (lockedMenus.contains(currentRoute)) {
                                         navController.navigate("dashboard")
                                     }
                                 } else {
-                                    // Buka kunci manual
-                                    targetRoute = currentRoute // Tetap di halaman ini
+                                    targetRoute = currentRoute
                                     showPinDialog = true
                                 }
                             }) {
@@ -189,7 +244,6 @@ fun MainApp() {
         ) { padding ->
             Box(modifier = Modifier.padding(padding)) {
                 NavHost(navController, startDestination = "dashboard") {
-
                     composable("dashboard") {
                         DashboardScreen(
                             onNavigateToSales = { navController.navigate("sales") },
@@ -197,7 +251,6 @@ fun MainApp() {
                             onNavigateToReport = { navController.navigate("report") }
                         )
                     }
-
                     composable("sales") { SalesScreen() }
                     composable("products") { ProductScreen() }
                     composable("customers") { CustomerScreen() }
@@ -207,13 +260,12 @@ fun MainApp() {
                     composable("report") { ReportScreen() }
                     composable("expense") { ExpenseScreen() }
                     composable("debt") { DebtScreen() }
-                    composable("settings") { SettingsScreen() } // Fitur Export/Import Excel ada di sini sekarang
+                    composable("settings") { SettingsScreen() }
                 }
             }
         }
     }
 
-    // --- DIALOG PIN ---
     if (showPinDialog) {
         PinDialog(
             onDismiss = { showPinDialog = false },
@@ -221,7 +273,6 @@ fun MainApp() {
                 showPinDialog = false
                 isSessionUnlocked = true
                 Toast.makeText(context, "Akses Dibuka", Toast.LENGTH_SHORT).show()
-
                 if (targetRoute.isNotEmpty() && targetRoute != currentRoute) {
                     navController.navigate(targetRoute) {
                         popUpTo("dashboard") { saveState = true }

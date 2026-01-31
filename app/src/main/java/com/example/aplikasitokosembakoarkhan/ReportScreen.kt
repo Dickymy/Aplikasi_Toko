@@ -105,11 +105,132 @@ fun ReportScreen(
         return if (qty % 1.0 == 0.0) qty.toInt().toString() else qty.toString()
     }
 
+    // --- LOGIC REKONSTRUKSI DATA (PENTING UNTUK STRUK) ---
+    // Karena di history kita hanya simpan string nama barang, kita harus cocokan lagi dengan data produk
+    // untuk mendapatkan harga satuan agar tampilan struk sama persis dengan kasir.
+    fun reconstructCartFromTransaction(trans: Transaction): Map<Product, Double> {
+        val cartMap = mutableMapOf<Product, Double>()
+        val items = trans.items.split(", ")
+
+        items.forEach { itemStr ->
+            try {
+                // Format string di database: "Nama Barang x 1.0"
+                val lastX = itemStr.lastIndexOf(" x")
+                if (lastX != -1) {
+                    val name = itemStr.substring(0, lastX).trim()
+                    val qty = itemStr.substring(lastX + 2).toDoubleOrNull() ?: 0.0
+
+                    // Cari produk berdasarkan nama di database saat ini
+                    var product = productList.find { it.name.equals(name, ignoreCase = true) }
+
+                    // Jika produk sudah dihapus dari database, buat produk dummy agar struk tetap jalan
+                    if (product == null) {
+                        product = Product(
+                            id = 0,
+                            name = name,
+                            barcode = "",
+                            buyPrice = 0.0,
+                            sellPrice = 0.0, // Harga 0 karena data hilang
+                            stock = 0.0,
+                            category = "-",
+                            unit = ""
+                        )
+                    }
+                    cartMap[product] = qty
+                }
+            } catch (e: Exception) {
+                // Ignore error parsing
+            }
+        }
+        return cartMap
+    }
+
+    // --- FUNGSI GENERATE TEXT WA (SAMA PERSIS DENGAN KASIR) ---
+    fun generateReceiptText(trans: Transaction): String {
+        val cart = reconstructCartFromTransaction(trans)
+        val sb = StringBuilder()
+
+        // Gunakan tanggal transaksi asli
+        val date = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale("id", "ID")).format(Date(trans.date))
+
+        // 1. Header Toko
+        sb.append("*${storeProfile.name.uppercase()}*\n")
+        if(storeProfile.address.isNotEmpty()) sb.append("${storeProfile.address}\n")
+        if(storeProfile.phone.isNotEmpty()) sb.append("Telp: ${storeProfile.phone}\n")
+        sb.append("--------------------------------\n")
+
+        // 2. Info Transaksi
+        sb.append("Tgl: $date\nPlg: ${trans.customerName}\n--------------------------------\n")
+
+        // 3. Detail Barang
+        cart.forEach { (product, qty) ->
+            // Gunakan harga jual saat ini (atau 0 jika produk dihapus)
+            // Catatan: Jika harga berubah setelah transaksi, ini akan ikut harga baru.
+            // Untuk akurasi 100% historis, harga per item harus disimpan di database transaksi.
+            // Di sini kita gunakan logic Grosir jika qty memenuhi syarat.
+            val finalPrice = if (product.wholesaleQty > 0 && qty >= product.wholesaleQty) product.wholesalePrice else product.sellPrice
+
+            sb.append("${product.name}\n${formatQty(qty)} x ${formatRupiah(finalPrice)} = ${formatRupiah(finalPrice * qty)}\n")
+        }
+
+        // 4. Total & Pembayaran
+        // Karena database transaksi belum menyimpan "Bayar" dan "Kembali",
+        // Kita asumsikan pembayaran Pas (Uang Pas) untuk report history.
+        val payAmount = trans.totalAmount
+        val changeAmount = 0.0
+
+        sb.append("--------------------------------\n*Total    : ${formatRupiah(trans.totalAmount)}*\n")
+        sb.append("Bayar    : ${formatRupiah(payAmount)}\n")
+        if (trans.paymentMethod == "Tunai") {
+            sb.append("Kembali : ${formatRupiah(changeAmount)}\n")
+        }
+        sb.append("Metode  : ${trans.paymentMethod}\n--------------------------------\n")
+
+        // 5. Footer
+        if(storeProfile.footer.isNotEmpty()) sb.append("${storeProfile.footer}\n") else sb.append("Terima Kasih!\n")
+
+        return sb.toString()
+    }
+
+    // --- FUNGSI SHARE WA ---
+    fun shareToWhatsApp(trans: Transaction) {
+        val text = generateReceiptText(trans)
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+            setPackage("com.whatsapp")
+        }
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "WhatsApp tidak ditemukan", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    // --- FUNGSI PRINT (THERMAL) ---
+    fun printTransaction(trans: Transaction) {
+        val cartMap = reconstructCartFromTransaction(trans)
+
+        // Asumsi uang pas untuk history
+        val payAmount = trans.totalAmount
+        val changeAmount = 0.0
+
+        PrinterHelper.printReceipt(
+            context = context,
+            cart = cartMap,
+            totalPrice = trans.totalAmount,
+            payAmount = payAmount,
+            change = changeAmount,
+            paymentMethod = trans.paymentMethod,
+            transactionDate = trans.date // Kirim tanggal asli transaksi
+        )
+    }
+
     // --- FILTER & SORT LOGIC ---
     val filteredTransactions = remember(transactions, selectedPaymentFilter, startDate, endDate, sortOption) {
         var result = transactions
         if (startDate != null) result = result.filter { it.date >= startDate!! }
-        if (endDate != null) result = result.filter { it.date <= (endDate!! + 86400000L) }
+        if (endDate != null) result = result.filter { it.date <= (endDate!! + 86400000L) } // +1 hari full
 
         if (selectedPaymentFilter != "Semua") {
             if (selectedPaymentFilter == "Non-Tunai") result = result.filter { !it.paymentMethod.equals("Tunai", ignoreCase = true) }
@@ -126,6 +247,7 @@ fun ReportScreen(
     val totalOmzet = filteredTransactions.sumOf { it.totalAmount }
     val totalPengeluaran = filteredExpenses.sumOf { it.amount }
 
+    // Hitung estimasi modal
     val totalModalEstimasi = remember(filteredTransactions, productList) {
         var modal = 0.0
         filteredTransactions.forEach { trans ->
@@ -146,7 +268,7 @@ fun ReportScreen(
     }
     val labaBersih = totalOmzet - totalModalEstimasi - totalPengeluaran
 
-    // --- LAUNCHER EXPORT CSV ---
+    // Launcher Export CSV
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("text/csv")
     ) { uri ->
@@ -159,92 +281,7 @@ fun ReportScreen(
         }
     }
 
-    // --- FIX: FUNGSI SHARE WA ---
-    fun shareToWhatsApp(trans: Transaction) {
-        val sb = StringBuilder()
-
-        // 1. HEADER (Nama & Alamat Toko)
-        sb.append("*${storeProfile.name}*\n")
-        if (storeProfile.address.isNotEmpty()) {
-            sb.append("${storeProfile.address}\n")
-        }
-        sb.append("----------------\n")
-
-        // 2. Info Transaksi
-        sb.append("Tgl: ${SimpleDateFormat("dd MMM yyyy, HH:mm").format(Date(trans.date))}\n")
-        sb.append("Plg: ${trans.customerName}\n")
-        sb.append("----------------\n")
-
-        // 3. Detail Item
-        trans.items.split(", ").forEach { itemStr ->
-            if (itemStr.isNotBlank()) {
-                try {
-                    val lastX = itemStr.lastIndexOf(" x")
-                    if (lastX != -1) {
-                        val name = itemStr.substring(0, lastX).trim()
-                        val qtyVal = itemStr.substring(lastX + 2).toDoubleOrNull() ?: 0.0
-                        val product = productList.find { it.name.equals(name, ignoreCase = true) }
-                        sb.append("$name x ${formatQty(qtyVal)} ${product?.unit ?: ""}\n")
-                    } else sb.append("$itemStr\n")
-                } catch (e: Exception) { sb.append("$itemStr\n") }
-            }
-        }
-
-        // 4. Total & Footer
-        sb.append("----------------\n")
-        sb.append("Total: ${formatRupiah(trans.totalAmount)}\n")
-
-        if (storeProfile.footer.isNotEmpty()) {
-            sb.append("\n${storeProfile.footer}\n")
-        }
-
-        val intent = Intent(Intent.ACTION_SEND).apply {
-            type = "text/plain"
-            putExtra(Intent.EXTRA_TEXT, sb.toString())
-            setPackage("com.whatsapp")
-        }
-
-        try {
-            context.startActivity(intent)
-        } catch (e: Exception) {
-            val shareIntent = Intent.createChooser(intent.apply { setPackage(null) }, "Bagikan Struk")
-            context.startActivity(shareIntent)
-        }
-    }
-
-    // --- FIX: FUNGSI CETAK STRUK ---
-    fun printTransaction(trans: Transaction) {
-        val cartMap = mutableMapOf<Product, Double>()
-        trans.items.split(", ").forEach { itemStr ->
-            try {
-                val lastX = itemStr.lastIndexOf(" x")
-                if (lastX != -1) {
-                    val name = itemStr.substring(0, lastX).trim()
-                    val qty = itemStr.substring(lastX + 2).toDoubleOrNull() ?: 0.0
-                    val product = productList.find { it.name.equals(name, ignoreCase = true) }
-                        ?: Product(name = name, barcode = "", buyPrice = 0.0, sellPrice = 0.0, stock = 0.0, category = "", unit = "")
-                    cartMap[product] = qty
-                }
-            } catch (e: Exception) {}
-        }
-
-        // PERBAIKAN: Karena database tidak punya payAmount & changeAmount,
-        // kita gunakan asumsi bayar pas (Total = Bayar, Kembali = 0)
-        // agar tidak error saat kompilasi.
-        val payAmount = trans.totalAmount
-        val changeAmount = 0.0
-
-        PrinterHelper.printReceipt(
-            context = context,
-            cart = cartMap,
-            totalPrice = trans.totalAmount,
-            payAmount = payAmount,
-            change = changeAmount,
-            paymentMethod = trans.paymentMethod,
-            transactionDate = trans.date
-        )
-    }
-
+    // --- UI START ---
     Scaffold(
         containerColor = BackgroundColor,
         floatingActionButton = {
@@ -455,6 +492,7 @@ fun ReportScreen(
                     Spacer(Modifier.height(8.dp))
 
                     Column(modifier = Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
+                        // REKONSTRUKSI DATA UNTUK TAMPILAN DETAIL
                         val items = trans.items.split(", ")
                         items.forEach { itemStr ->
                             if (itemStr.isNotBlank()) {

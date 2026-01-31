@@ -1,8 +1,8 @@
 package com.example.aplikasitokosembakoarkhan
 
+import android.app.Activity
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,8 +44,16 @@ fun DashboardScreen(
     val transactions by reportViewModel.allTransactions.collectAsState(initial = emptyList())
     val storeProfile by settingsViewModel.storeProfile.collectAsState()
 
-    // --- STATE UI ---
+    // --- STATE UI & LOGIKA KELUAR APLIKASI ---
+    val context = LocalContext.current
     var showStoreProfileDialog by remember { mutableStateOf(false) }
+    var showExitAppDialog by remember { mutableStateOf(false) }
+
+    // FITUR: TANGKAP TOMBOL BACK
+    BackHandler {
+        // Saat tombol back ditekan di Dashboard, munculkan dialog
+        showExitAppDialog = true
+    }
 
     // --- LOGIKA DATA ---
     val todayStart = Calendar.getInstance().apply {
@@ -90,7 +99,6 @@ fun DashboardScreen(
                 Text(text = greeting, style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
                 Text(text = storeProfile.name.ifEmpty { "Toko Sembako" }, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
             }
-            // ICON TOKO SEKARANG BERFUNGSI
             IconButton(
                 onClick = { showStoreProfileDialog = true },
                 modifier = Modifier.background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
@@ -170,7 +178,7 @@ fun DashboardScreen(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // 1. EXPIRE WARNING (EXPANDABLE)
+            // 1. EXPIRE WARNING
             if (expiringProducts.isNotEmpty()) {
                 item {
                     ExpandableWarningCard(
@@ -190,7 +198,7 @@ fun DashboardScreen(
                 }
             }
 
-            // 2. STOK WARNING (EXPANDABLE)
+            // 2. STOK WARNING
             if (lowStockProducts.isNotEmpty()) {
                 item {
                     ExpandableWarningCard(
@@ -225,7 +233,7 @@ fun DashboardScreen(
         }
     }
 
-    // --- DIALOG PROFIL TOKO (FITUR BARU UNTUK IKON TOKO) ---
+    // --- DIALOG PROFIL TOKO ---
     if (showStoreProfileDialog) {
         AlertDialog(
             onDismissRequest = { showStoreProfileDialog = false },
@@ -238,29 +246,42 @@ fun DashboardScreen(
                     Spacer(Modifier.height(8.dp))
                     Text("Telepon:", fontSize = 12.sp, color = Color.Gray)
                     Text(storeProfile.phone.ifEmpty { "-" }, fontWeight = FontWeight.Medium)
-
                     Divider(Modifier.padding(vertical = 12.dp))
-
-                    // Statistik Ringkas
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Column { Text("Total Aset", fontSize = 11.sp); Text(formatRupiah(totalAsset), fontWeight = FontWeight.Bold) }
                         Column { Text("Total Barang", fontSize = 11.sp); Text("${products.size} Item", fontWeight = FontWeight.Bold) }
                     }
                 }
             },
+            confirmButton = { TextButton(onClick = { showStoreProfileDialog = false }) { Text("Tutup") } }
+        )
+    }
+
+    // --- DIALOG KONFIRMASI KELUAR APLIKASI (NEW) ---
+    if (showExitAppDialog) {
+        AlertDialog(
+            onDismissRequest = { showExitAppDialog = false },
+            icon = { Icon(Icons.Default.ExitToApp, null, tint = Color.Red) },
+            title = { Text("Keluar Aplikasi?") },
+            text = { Text("Apakah Anda yakin ingin menutup aplikasi?") },
             confirmButton = {
-                TextButton(onClick = { showStoreProfileDialog = false }) { Text("Tutup") }
+                Button(
+                    onClick = {
+                        // Tutup Aplikasi
+                        val activity = context as? Activity
+                        activity?.finish()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                ) { Text("Ya, Keluar") }
             },
-            // Opsional: Tombol Edit mengarah ke Settings
             dismissButton = {
-                // Di sini Anda bisa menambahkan navigasi ke Settings jika mau,
-                // tapi karena ini komponen Composable mandiri, kita cukup tutup saja.
+                OutlinedButton(onClick = { showExitAppDialog = false }) { Text("Batal") }
             }
         )
     }
 }
 
-// --- KOMPONEN WARNING YANG BISA EXPAND ---
+// --- KOMPONEN WARNING ---
 @Composable
 fun <T> ExpandableWarningCard(
     title: String,
@@ -280,16 +301,12 @@ fun <T> ExpandableWarningCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(Modifier.padding(16.dp)) {
-            // Header
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(icon, null, tint = borderColor, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(title, color = borderColor, fontWeight = FontWeight.Bold)
             }
-
             Spacer(Modifier.height(12.dp))
-
-            // List Items
             Column {
                 displayItems.forEachIndexed { index, item ->
                     content(item)
@@ -298,8 +315,6 @@ fun <T> ExpandableWarningCard(
                     }
                 }
             }
-
-            // Tombol Expand / Collapse
             if (items.size > 5) {
                 Spacer(Modifier.height(8.dp))
                 TextButton(
@@ -308,11 +323,7 @@ fun <T> ExpandableWarningCard(
                     colors = ButtonDefaults.textButtonColors(contentColor = borderColor)
                 ) {
                     Text(if (expanded) "Sembunyikan" else "Lihat Semua (${items.size})")
-                    Icon(
-                        if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        null,
-                        modifier = Modifier.padding(start = 4.dp).size(16.dp)
-                    )
+                    Icon(if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown, null, modifier = Modifier.padding(start = 4.dp).size(16.dp))
                 }
             }
         }
@@ -320,15 +331,10 @@ fun <T> ExpandableWarningCard(
 }
 
 @Composable
-fun QuickAccessButton(
-    icon: ImageVector, label: String, color: Color, iconColor: Color,
-    onClick: () -> Unit, modifier: Modifier = Modifier
-) {
+fun QuickAccessButton(icon: ImageVector, label: String, color: Color, iconColor: Color, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Card(modifier = modifier.clickable { onClick() }, colors = CardDefaults.cardColors(containerColor = color), shape = RoundedCornerShape(12.dp)) {
         Row(modifier = Modifier.fillMaxSize().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-            Icon(icon, null, tint = iconColor, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(label, color = iconColor, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            Icon(icon, null, tint = iconColor, modifier = Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text(label, color = iconColor, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
     }
 }
@@ -336,13 +342,8 @@ fun QuickAccessButton(
 @Composable
 fun StatisticItem(icon: ImageVector, label: String, value: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-        Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-            Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-        }
+        Box(modifier = Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) { Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp)) }
         Spacer(Modifier.width(12.dp))
-        Column {
-            Text(label, fontSize = 11.sp, color = Color.Gray)
-            Text(value, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        }
+        Column { Text(label, fontSize = 11.sp, color = Color.Gray); Text(value, fontWeight = FontWeight.Bold, fontSize = 14.sp) }
     }
 }
